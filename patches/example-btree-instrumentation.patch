@@ -1,0 +1,37 @@
+--- a/btree.c
++++ b/btree.c
+@@ -100,6 +100,12 @@
+ */
+ #include "sqliteInt.h"
+
++/* Visualization event hooks */
++#ifdef SQLITE_ENABLE_VISUALIZATION
++extern void btree_insert_event(int page_num, int cell_idx, const char* key, int key_len);
++extern void page_allocate_event(int page_num, int page_type);
++#endif
++
+ /* Round up a number to the next larger multiple of 8.  This is used
+ ** to force 8-byte alignment on 64-bit architectures.
+ */
+@@ -4500,6 +4506,11 @@ static int allocateBtreePage(
+     }
+   }
+
++#ifdef SQLITE_ENABLE_VISUALIZATION
++  if( rc==SQLITE_OK ){
++    page_allocate_event((int)*pPgno, (int)eMode);
++  }
++#endif
+   return rc;
+ }
+
+@@ -6789,6 +6800,10 @@ static int insertCell(
+     pPage->nFree = 0;
+   }
+
++#ifdef SQLITE_ENABLE_VISUALIZATION
++  btree_insert_event(pPage->pgno, i, (const char*)pCell, sz);
++#endif
++
+   return SQLITE_OK;
+ }
