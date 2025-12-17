@@ -1,0 +1,22 @@
+{
+  "name": "sqlitevis",
+  "version": "0.1.0",
+  "description": "SQLite B-Tree visualization with WebAssembly",
+  "main": "src/web/index.html",
+  "scripts": {
+    "serve": "python3 -m http.server 8000 --directory .",
+    "build": "make build-wasm",
+    "clean": "make clean"
+  },
+  "keywords": [
+    "sqlite",
+    "webassembly",
+    "visualization",
+    "btree",
+    "database"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}

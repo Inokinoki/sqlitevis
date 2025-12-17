@@ -1,0 +1,31 @@
+# Build outputs
+build/
+*.wasm
+*.js.mem
+
+# SQLite downloads
+sqlite/original/
+sqlite/instrumented/
+
+# Dependencies
+node_modules/
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+.tmp/
+temp/
