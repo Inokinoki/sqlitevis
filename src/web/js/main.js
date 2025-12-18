@@ -204,8 +204,8 @@ class SQLiteVisApp {
         this.updateStatus('Executing SQL...');
 
         try {
-            // Emit parse start event
-            eventManager.handleEvent(8, `{"sql":"${sql.replace(/"/g, '\\"')}"}`);
+            // Emit parse start event (properly escape SQL for JSON)
+            eventManager.handleEvent(8, JSON.stringify({ sql: sql }));
 
             // In mock mode, simulate some operations
             if (!this.sqliteModule) {
