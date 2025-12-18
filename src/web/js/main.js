@@ -53,22 +53,41 @@ class SQLiteVisApp {
             return;
         }
 
-        this.sqliteModule = await createSQLiteModule();
+        try {
+            this.sqliteModule = await createSQLiteModule();
+            console.log('SQLite WASM module loaded');
 
-        // Open a database
-        const dbPathPtr = this.sqliteModule.stringToUTF8('demo.db');
-        const dbPtrPtr = this.sqliteModule._malloc(4);
+            // Allocate memory for database path string
+            const dbPath = ':memory:'; // Use in-memory database
+            const dbPathLen = this.sqliteModule.lengthBytesUTF8(dbPath) + 1;
+            const dbPathPtr = this.sqliteModule._malloc(dbPathLen);
+            this.sqliteModule.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
 
-        const result = this.sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
+            // Allocate memory for database pointer
+            const dbPtrPtr = this.sqliteModule._malloc(4);
 
-        if (result !== 0) {
-            throw new Error('Failed to open database');
+            // Open database
+            const result = this.sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
+
+            if (result !== 0) {
+                const errPtr = this.sqliteModule._sqlite3_errmsg(dbPtrPtr);
+                const errMsg = this.sqliteModule.UTF8ToString(errPtr);
+                throw new Error('Failed to open database: ' + errMsg);
+            }
+
+            // Read the database pointer from memory
+            this.db = this.sqliteModule.HEAP32[dbPtrPtr >> 2];
+
+            // Free temporary memory
+            this.sqliteModule._free(dbPathPtr);
+            this.sqliteModule._free(dbPtrPtr);
+
+            console.log('SQLite initialized successfully (in-memory database)');
+        } catch (error) {
+            console.error('SQLite initialization failed:', error);
+            console.log('Falling back to mock mode');
+            this.useMockMode();
         }
-
-        this.db = this.sqliteModule.getValue(dbPtrPtr, 'i32');
-        this.sqliteModule._free(dbPtrPtr);
-
-        console.log('SQLite initialized successfully');
     }
 
     /**
@@ -244,34 +263,54 @@ class SQLiteVisApp {
      * Execute real SQL with WASM
      */
     executeRealSQL(sql) {
-        // To be implemented with actual SQLite WASM calls
-        // This will use sqlite3_exec or sqlite3_prepare_v2/step/finalize
-
-        const sqlPtr = this.sqliteModule._malloc(sql.length + 1);
-        this.sqliteModule.stringToUTF8(sql, sqlPtr, sql.length + 1);
-
-        const errorPtr = this.sqliteModule._malloc(4);
-
-        const result = this.sqliteModule._sqlite3_exec(
-            this.db,
-            sqlPtr,
-            0, // callback
-            0, // callback arg
-            errorPtr
-        );
-
-        this.sqliteModule._free(sqlPtr);
-
-        if (result !== 0) {
-            const errorMsgPtr = this.sqliteModule.getValue(errorPtr, 'i32');
-            const errorMsg = this.sqliteModule.UTF8ToString(errorMsgPtr);
-            this.showOutput('Error: ' + errorMsg, 'error');
-        } else {
-            this.showOutput('SQL executed successfully', 'success');
+        if (!this.db || !this.sqliteModule) {
+            this.showOutput('Database not initialized', 'error');
+            return;
         }
 
-        this.sqliteModule._free(errorPtr);
-        this.updateStatus('Ready');
+        try {
+            // Allocate memory for SQL string
+            const sqlLen = this.sqliteModule.lengthBytesUTF8(sql) + 1;
+            const sqlPtr = this.sqliteModule._malloc(sqlLen);
+            this.sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+            // Allocate memory for error message pointer
+            const errorPtrPtr = this.sqliteModule._malloc(4);
+            this.sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+            // Execute SQL
+            const result = this.sqliteModule._sqlite3_exec(
+                this.db,
+                sqlPtr,
+                0, // callback
+                0, // callback arg
+                errorPtrPtr
+            );
+
+            // Free SQL string
+            this.sqliteModule._free(sqlPtr);
+
+            if (result !== 0) {
+                // Read error message pointer
+                const errorMsgPtr = this.sqliteModule.HEAP32[errorPtrPtr >> 2];
+                if (errorMsgPtr) {
+                    const errorMsg = this.sqliteModule.UTF8ToString(errorMsgPtr);
+                    this.showOutput('SQL Error: ' + errorMsg, 'error');
+                } else {
+                    this.showOutput('SQL Error code: ' + result, 'error');
+                }
+            } else {
+                this.showOutput('✅ SQL executed successfully', 'success');
+                console.log('SQL executed:', sql);
+            }
+
+            this.sqliteModule._free(errorPtrPtr);
+            this.updateStatus('Ready');
+        } catch (error) {
+            console.error('Error executing SQL:', error);
+            this.showOutput('Error: ' + error.message, 'error');
+            this.updateStatus('Error');
+        }
     }
 
     /**
