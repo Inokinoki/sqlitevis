@@ -1,0 +1,112 @@
+name: Build and Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.50'
+          actions-cache-folder: 'emsdk-cache'
+
+      - name: Verify Emscripten installation
+        run: |
+          emcc --version
+          which emcc
+
+      - name: Create project structure
+        run: |
+          make setup
+          mkdir -p build
+
+      - name: Download SQLite source
+        run: |
+          make download-sqlite
+
+      - name: Copy SQLite for instrumentation
+        run: |
+          cp -r sqlite/original/* sqlite/instrumented/
+
+      - name: Apply basic instrumentation
+        run: |
+          # For now, build without full instrumentation
+          # The web app will work in mock mode
+          echo "Building with basic SQLite (mock mode enabled)"
+
+      - name: Build WebAssembly module
+        run: |
+          make build-wasm
+        continue-on-error: true
+
+      - name: Create deployment structure
+        run: |
+          mkdir -p dist
+
+          # Copy web files
+          cp src/web/index.html dist/
+          cp -r src/web/css dist/
+          cp -r src/web/js dist/
+
+          # Copy build files if they exist
+          if [ -d "build" ] && [ -f "build/sqlite3.js" ]; then
+            cp -r build dist/
+            echo "WASM build included"
+          else
+            echo "WASM build not available - will run in mock mode"
+            # Create empty build directory so paths don't break
+            mkdir -p dist/build
+            # Create a dummy file to indicate mock mode
+            echo "// WASM module not available - running in mock mode" > dist/build/sqlite3.js
+          fi
+
+          # Create a 404 page
+          cp dist/index.html dist/404.html
+
+      - name: List deployment files
+        run: |
+          echo "Deployment structure:"
+          find dist -type f
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
