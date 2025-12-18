@@ -302,14 +302,72 @@ class SQLiteVisApp {
             } else {
                 this.showOutput('✅ SQL executed successfully', 'success');
                 console.log('SQL executed:', sql);
+
+                // Simulate B-tree events based on SQL operation
+                this.simulateEvents(sql);
             }
 
             this.sqliteModule._free(errorPtrPtr);
+            eventManager.handleEvent(10, '{"success":' + (result === 0 ? '1' : '0') + '}');
             this.updateStatus('Ready');
         } catch (error) {
             console.error('Error executing SQL:', error);
             this.showOutput('Error: ' + error.message, 'error');
             this.updateStatus('Error');
+        }
+    }
+
+    /**
+     * Simulate B-tree events based on SQL operations
+     * This provides visualization until full SQLite instrumentation is added
+     */
+    simulateEvents(sql) {
+        const sqlUpper = sql.toUpperCase();
+
+        // CREATE TABLE - allocate a new page
+        if (sqlUpper.includes('CREATE TABLE')) {
+            const tableName = sql.match(/CREATE\s+TABLE\s+(\w+)/i)?.[1] || 'unknown';
+            setTimeout(() => {
+                eventManager.handleEvent(6, '{"page":' + (this.visualizer.nodes.size + 1) + ',"type":1}');
+            }, 100);
+        }
+
+        // INSERT - add cells to B-tree
+        if (sqlUpper.includes('INSERT INTO')) {
+            const matches = sql.match(/INSERT INTO/gi);
+            const count = matches ? matches.length : 1;
+
+            for (let i = 0; i < count; i++) {
+                setTimeout(() => {
+                    const pageNum = this.visualizer.nodes.size || 1;
+                    const cellIdx = Array.from(this.visualizer.nodes.values())
+                        .find(n => n.page === pageNum)?.cells.length || 0;
+
+                    eventManager.handleEvent(2, JSON.stringify({
+                        page: pageNum,
+                        cell: cellIdx,
+                        keyLen: 16
+                    }));
+                }, 200 * (i + 1));
+            }
+        }
+
+        // DELETE - remove cells
+        if (sqlUpper.includes('DELETE FROM')) {
+            setTimeout(() => {
+                const pageNum = this.visualizer.nodes.size || 1;
+                eventManager.handleEvent(3, JSON.stringify({
+                    page: pageNum,
+                    cell: 0
+                }));
+            }, 100);
+        }
+
+        // SELECT - just emit completion
+        if (sqlUpper.includes('SELECT')) {
+            setTimeout(() => {
+                eventManager.handleEvent(13, '{"resultCode":0}');
+            }, 100);
         }
     }
 
