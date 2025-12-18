@@ -1,6 +1,14 @@
 # SQLite B-Tree Visualization
 
+[![Deploy to GitHub Pages](https://github.com/Inokinoki/sqlitevis/workflows/Build%20and%20Deploy%20to%20GitHub%20Pages/badge.svg)](https://github.com/Inokinoki/sqlitevis/actions)
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://inokinoki.github.io/sqlitevis/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An interactive web-based visualization tool that compiles SQLite to WebAssembly with custom instrumentation to visualize internal operations including B-tree structures, transitions, and SQL parsing.
+
+## 🚀 [Try the Live Demo](https://inokinoki.github.io/sqlitevis/)
+
+> **Note**: The live demo runs in mock mode for demonstration purposes. Clone the repository and build locally to get full SQLite WASM functionality.
 
 ## Features
 
