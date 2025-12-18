@@ -323,41 +323,96 @@ class SQLiteVisApp {
      */
     simulateEvents(sql) {
         const sqlUpper = sql.toUpperCase();
+        const MAX_CELLS_PER_PAGE = 5; // Trigger split after this many cells
 
         // CREATE TABLE - allocate a new page
         if (sqlUpper.includes('CREATE TABLE')) {
-            const tableName = sql.match(/CREATE\s+TABLE\s+(\w+)/i)?.[1] || 'unknown';
             setTimeout(() => {
-                eventManager.handleEvent(6, '{"page":' + (this.visualizer.nodes.size + 1) + ',"type":1}');
+                eventManager.handleEvent(6, JSON.stringify({
+                    page: this.visualizer.nodes.size + 1,
+                    type: 1 // leaf page
+                }));
             }, 100);
         }
 
-        // INSERT - add cells to B-tree
+        // INSERT - add cells to B-tree with realistic splitting
         if (sqlUpper.includes('INSERT INTO')) {
             const matches = sql.match(/INSERT INTO/gi);
             const count = matches ? matches.length : 1;
 
             for (let i = 0; i < count; i++) {
                 setTimeout(() => {
-                    const pageNum = this.visualizer.nodes.size || 1;
-                    const cellIdx = Array.from(this.visualizer.nodes.values())
-                        .find(n => n.page === pageNum)?.cells.length || 0;
+                    // Find the page with the most cells that isn't full yet
+                    let targetPage = null;
+                    let maxCells = -1;
 
+                    for (const node of this.visualizer.nodes.values()) {
+                        if (node.type === 1 && node.cells.length < MAX_CELLS_PER_PAGE) {
+                            if (node.cells.length > maxCells) {
+                                maxCells = node.cells.length;
+                                targetPage = node.page;
+                            }
+                        }
+                    }
+
+                    // If no page found or doesn't exist, use page 1
+                    if (!targetPage) {
+                        targetPage = 1;
+                    }
+
+                    const currentNode = this.visualizer.nodes.get(targetPage);
+                    const cellIdx = currentNode ? currentNode.cells.length : 0;
+
+                    // Insert the cell
                     eventManager.handleEvent(2, JSON.stringify({
-                        page: pageNum,
+                        page: targetPage,
                         cell: cellIdx,
                         keyLen: 16
                     }));
-                }, 200 * (i + 1));
+
+                    // Check if page is now full and needs splitting
+                    setTimeout(() => {
+                        const node = this.visualizer.nodes.get(targetPage);
+                        if (node && node.cells.length >= MAX_CELLS_PER_PAGE) {
+                            // Split the page
+                            const newPageNum = this.visualizer.nodes.size + 1;
+                            const splitCell = Math.floor(node.cells.length / 2);
+
+                            // Emit page allocation for new page
+                            eventManager.handleEvent(6, JSON.stringify({
+                                page: newPageNum,
+                                type: 1 // leaf page
+                            }));
+
+                            // Emit split event
+                            setTimeout(() => {
+                                eventManager.handleEvent(4, JSON.stringify({
+                                    originalPage: targetPage,
+                                    newPage: newPageNum,
+                                    splitCell: splitCell
+                                }));
+                            }, 100);
+                        }
+                    }, 100);
+
+                }, 300 * (i + 1));
             }
         }
 
         // DELETE - remove cells
         if (sqlUpper.includes('DELETE FROM')) {
             setTimeout(() => {
-                const pageNum = this.visualizer.nodes.size || 1;
+                // Find first non-empty page
+                let targetPage = 1;
+                for (const node of this.visualizer.nodes.values()) {
+                    if (node.cells.length > 0) {
+                        targetPage = node.page;
+                        break;
+                    }
+                }
+
                 eventManager.handleEvent(3, JSON.stringify({
-                    page: pageNum,
+                    page: targetPage,
                     cell: 0
                 }));
             }, 100);
