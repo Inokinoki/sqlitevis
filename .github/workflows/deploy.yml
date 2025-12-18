@@ -60,37 +60,66 @@ jobs:
 
       - name: Build WebAssembly module
         run: |
-          make build-wasm
+          set +e
+          make build-wasm 2>&1 | tee build.log
+          BUILD_RESULT=${PIPESTATUS[0]}
+          if [ $BUILD_RESULT -ne 0 ]; then
+            echo "::warning::WASM build failed, deploying in mock mode"
+            echo "Build log:"
+            cat build.log
+          else
+            echo "✅ WASM build successful!"
+          fi
+          exit 0
         continue-on-error: true
+
+      - name: Verify WASM build
+        run: |
+          if [ -f "build/sqlite3.js" ] && [ -f "build/sqlite3.wasm" ]; then
+            echo "✅ WASM files found:"
+            ls -lh build/
+            echo "WASM_AVAILABLE=true" >> $GITHUB_ENV
+          else
+            echo "⚠️  WASM build not available - will deploy in mock mode"
+            ls -la build/ 2>/dev/null || echo "Build directory not found"
+            echo "WASM_AVAILABLE=false" >> $GITHUB_ENV
+          fi
 
       - name: Create deployment structure
         run: |
           mkdir -p dist
 
-          # Copy web files
+          echo "📦 Copying web files..."
           cp src/web/index.html dist/
           cp -r src/web/css dist/
           cp -r src/web/js dist/
 
+          echo "🔍 Checking for WASM build..."
           # Copy build files if they exist
-          if [ -d "build" ] && [ -f "build/sqlite3.js" ]; then
+          if [ -f "build/sqlite3.js" ] && [ -f "build/sqlite3.wasm" ]; then
+            echo "✅ Found WASM files - including in deployment"
             cp -r build dist/
-            echo "WASM build included"
+            echo "  - sqlite3.js: $(ls -lh build/sqlite3.js | awk '{print $5}')"
+            echo "  - sqlite3.wasm: $(ls -lh build/sqlite3.wasm | awk '{print $5}')"
+            echo "🚀 Full SQLite WASM functionality will be available"
           else
-            echo "WASM build not available - will run in mock mode"
-            # Create empty build directory so paths don't break
+            echo "⚠️  WASM files not found - deploying in mock mode"
             mkdir -p dist/build
-            # Create a dummy file to indicate mock mode
             echo "// WASM module not available - running in mock mode" > dist/build/sqlite3.js
+            echo "📝 Site will demonstrate UI with simulated events"
           fi
 
           # Create a 404 page
           cp dist/index.html dist/404.html
+          echo "✅ Deployment structure created"
 
       - name: List deployment files
         run: |
-          echo "Deployment structure:"
-          find dist -type f
+          echo "📂 Deployment contents:"
+          find dist -type f | sort
+          echo ""
+          echo "📊 Total size:"
+          du -sh dist
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
