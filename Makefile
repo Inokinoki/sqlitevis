@@ -34,7 +34,8 @@ EMCC_FLAGS = \
 	-DSQLITE_OMIT_LOAD_EXTENSION \
 	-DSQLITE_ENABLE_FTS5 \
 	-DSQLITE_ENABLE_RTREE \
-	-DSQLITE_THREADSAFE=0
+	-DSQLITE_THREADSAFE=0 \
+	-DEMSCRIPTEN
 
 all: build-wasm
 
@@ -57,7 +58,7 @@ instrument: download-sqlite
 	@echo "Copying SQLite source for instrumentation..."
 	@cp -r $(SQLITE_ORIGINAL)/* $(SQLITE_INSTRUMENTED)/
 	@echo "Applying instrumentation patches..."
-	@# We'll add instrumentation in the next step
+	@python3 scripts/instrument_sqlite.py $(SQLITE_INSTRUMENTED)/sqlite3.c
 	@echo "Instrumentation complete"
 
 build-wasm: instrument
