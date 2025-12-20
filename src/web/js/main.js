@@ -303,8 +303,7 @@ class SQLiteVisApp {
                 this.showOutput('✅ SQL executed successfully', 'success');
                 console.log('SQL executed:', sql);
 
-                // Simulate B-tree events based on SQL operation
-                this.simulateEvents(sql);
+                // Real events will be emitted by instrumented SQLite
             }
 
             this.sqliteModule._free(errorPtrPtr);

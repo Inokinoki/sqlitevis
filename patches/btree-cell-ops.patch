@@ -1,0 +1,44 @@
+--- Description: B-Tree Cell Operations Instrumentation
+--- Instruments: cell insertion and deletion
+--- Functions: insertCell(), dropCell()
+
+This patch adds event hooks for:
+- Cell insertion (when rows are added to B-tree)
+- Cell deletion (when rows are removed from B-tree)
+
+Apply with: patch -p0 < btree-cell-ops.patch
+
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -1,5 +1,11 @@
+ #include "sqliteInt.h"
+
++/* Visualization hooks for cell operations */
++#ifdef EMSCRIPTEN
++extern void btree_insert_event(int page_num, int cell_idx, const char* key, int key_len);
++extern void btree_delete_event(int page_num, int cell_idx);
++#endif
++
+ /* Rest of SQLite code... */
+
+ static int insertCell(
+@@ -15,6 +21,9 @@ static int insertCell(
+
+   /* Insert the cell into the page */
+
++#ifdef EMSCRIPTEN
++  btree_insert_event(pPage->pgno, i, (const char*)pCell, sz);
++#endif
+   return SQLITE_OK;
+ }
+
+@@ -25,6 +34,9 @@ static int insertCell(
+
+ static void dropCell(MemPage *pPage, unsigned idx, int sz, int *pRC) {
+   int rc = *pRC;
++#ifdef EMSCRIPTEN
++  btree_delete_event(pPage->pgno, idx);
++#endif
+
+   /* Drop the cell from the page */
+   *pRC = rc;

@@ -1,0 +1,45 @@
+--- Description: B-Tree Balance Operations Instrumentation
+--- Instruments: page splitting and balancing
+--- Functions: balance_nonroot(), balance_quick(), balance()
+
+This patch adds event hooks for:
+- Page splitting (when pages overflow and split)
+- B-tree balancing (when tree is rebalanced)
+
+Apply with: patch -p0 < btree-balance-ops.patch
+
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -1,5 +1,11 @@
+ #include "sqliteInt.h"
+
++/* Visualization hooks for balance operations */
++#ifdef EMSCRIPTEN
++extern void btree_split_event(int original_page, int new_page, int split_cell);
++extern void btree_balance_event(int page_num, int num_cells);
++#endif
++
+ /* Rest of SQLite code... */
+
+ static int balance_nonroot(
+@@ -11,6 +17,10 @@ static int balance_nonroot(
+   int rc = SQLITE_OK;
+   int i;
+
++#ifdef EMSCRIPTEN
++  if (pParent) btree_balance_event(pParent->pgno, pParent->nCell);
++#endif
++
+   /* Balance the page... */
+
+   /* When creating a new page during split */
+@@ -20,6 +30,9 @@ static int balance_nonroot(
+     /* Allocate new page */
+     rc = allocateBtreePage(pBt, &pNew, &pgnoNew, 0, 0);
+     if( rc==SQLITE_OK ){
++#ifdef EMSCRIPTEN
++      btree_split_event(apOld[0]->pgno, pgnoNew, iOvflIdx);
++#endif
+       /* Move cells to new page */
+     }
+   }

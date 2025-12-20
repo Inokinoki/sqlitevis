@@ -52,11 +52,11 @@ jobs:
         run: |
           cp -r sqlite/original/* sqlite/instrumented/
 
-      - name: Apply basic instrumentation
+      - name: Apply SQLite instrumentation
         run: |
-          # For now, build without full instrumentation
-          # The web app will work in mock mode
-          echo "Building with basic SQLite (mock mode enabled)"
+          echo "🔧 Applying real SQLite instrumentation..."
+          python3 scripts/instrument_sqlite.py sqlite/instrumented/sqlite3.c
+          echo "✅ SQLite instrumented with visualization hooks"
 
       - name: Build WebAssembly module
         run: |

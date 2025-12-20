@@ -76,6 +76,13 @@ void btree_split_event(int original_page, int new_page, int split_cell) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void btree_balance_event(int page_num, int num_cells) {
+    emit_vis_event(EVENT_BTREE_BALANCE,
+        "{\"page\":%d,\"numCells\":%d}",
+        page_num, num_cells);
+}
+
+EMSCRIPTEN_KEEPALIVE
 void page_allocate_event(int page_num, int page_type) {
     emit_vis_event(EVENT_PAGE_ALLOCATE,
         "{\"page\":%d,\"type\":%d}",
