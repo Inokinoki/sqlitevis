@@ -1,0 +1,44 @@
+--- Description: B-Tree Page Operations Instrumentation
+--- Instruments: page allocation and deallocation
+--- Functions: allocateBtreePage(), freePage()
+
+This patch adds event hooks for:
+- Page allocation (when new B-tree pages are created)
+- Page deallocation (when pages are freed)
+
+Apply with: patch -p0 < btree-page-ops.patch
+
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -1,5 +1,11 @@
+ #include "sqliteInt.h"
+
++/* Visualization hooks for page operations */
++#ifdef EMSCRIPTEN
++extern void page_allocate_event(int page_num, int page_type);
++extern void page_free_event(int page_num);
++#endif
++
+ /* Rest of SQLite code... */
+
+ static int allocateBtreePage(...) {
+@@ -10,6 +16,9 @@ static int allocateBtreePage(...) {
+
+   if( rc==SQLITE_OK ){
+     *ppPage = pPage;
++#ifdef EMSCRIPTEN
++    page_allocate_event((int)*pPgno, (int)eMode);
++#endif
+   }
+   return rc;
+ }
+@@ -20,6 +29,9 @@ static int allocateBtreePage(...) {
+
+ static int freePage(BtShared *pBt, MemPage *pPage, Pgno iPage) {
+   int rc;
++#ifdef EMSCRIPTEN
++  page_free_event((int)iPage);
++#endif
+
+   /* Free the page... */
+   return rc;

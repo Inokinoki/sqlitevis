@@ -1,0 +1,59 @@
+--- Description: VDBE Execution Instrumentation
+--- Instruments: Virtual Database Engine opcode execution
+--- Functions: sqlite3VdbeExec()
+
+This patch adds event hooks for:
+- VDBE execution start (when query execution begins)
+- Opcode execution (each bytecode instruction)
+- VDBE execution complete (when query finishes)
+
+Apply with: patch -p0 < vdbe-execution.patch
+
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -1,5 +1,12 @@
+ #include "sqliteInt.h"
+
++/* Visualization hooks for VDBE execution */
++#ifdef EMSCRIPTEN
++extern void vdbe_start_event(int num_opcodes);
++extern void vdbe_opcode_event(int pc, const char* opcode, int p1, int p2, int p3);
++extern void vdbe_complete_event(int result_code);
++#endif
++
+ /* Rest of SQLite code... */
+
+ int sqlite3VdbeExec(Vdbe *p){
+@@ -10,6 +17,10 @@ int sqlite3VdbeExec(Vdbe *p){
+   Op *aOp = p->aOp;                /* Copy of p->aOp */
+   Op *pOp;                         /* Current operation */
+
++#ifdef EMSCRIPTEN
++  vdbe_start_event(p->nOp);
++#endif
++
+   /* Main execution loop */
+   for(pc=p->pc; rc==SQLITE_OK && pc>=0 && pc<p->nOp; pc++){
+     pOp = &aOp[pc];
+@@ -18,6 +29,10 @@ int sqlite3VdbeExec(Vdbe *p){
+     /* Debug: print opcode */
+     assert( pOp->opflags==sqlite3OpcodeProperty[pOp->opcode] );
+
++#ifdef EMSCRIPTEN
++    vdbe_opcode_event(pc, sqlite3OpcodeName(pOp->opcode), pOp->p1, pOp->p2, pOp->p3);
++#endif
++
+     /* Execute the opcode */
+     switch( pOp->opcode ){
+       /* Case statements for each opcode... */
+@@ -28,6 +43,10 @@ int sqlite3VdbeExec(Vdbe *p){
+
+   /* Cleanup and return */
+   vdbe_error_out:
++
++#ifdef EMSCRIPTEN
++  vdbe_complete_event(rc);
++#endif
++
+   return rc;
+ }

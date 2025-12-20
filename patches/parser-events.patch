@@ -1,0 +1,64 @@
+--- Description: SQL Parser Instrumentation
+--- Instruments: SQL parsing and tokenization
+--- Functions: sqlite3RunParser(), sqlite3GetToken()
+
+This patch adds event hooks for:
+- Parse start (when SQL parsing begins)
+- Token recognition (lexical analysis)
+- Parse complete (when AST is built)
+
+Apply with: patch -p0 < parser-events.patch
+
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -1,5 +1,12 @@
+ #include "sqliteInt.h"
+
++/* Visualization hooks for SQL parser */
++#ifdef EMSCRIPTEN
++extern void parse_start_event(const char* sql);
++extern void parse_token_event(const char* token, int token_type);
++extern void parse_complete_event(int success);
++#endif
++
+ /* Rest of SQLite code... */
+
+ int sqlite3RunParser(Parse *pParse, const char *zSql, char **pzErrMsg){
+@@ -8,6 +15,10 @@ int sqlite3RunParser(Parse *pParse, const char *zSql, char **pzErrMsg){
+   Token *pToken = &pParse->sLastToken;
+   int i;
+
++#ifdef EMSCRIPTEN
++  if (zSql) parse_start_event(zSql);
++#endif
++
+   /* Initialize parser */
+   sqlite3ParserInit(pParse);
+
+@@ -20,6 +31,10 @@ int sqlite3RunParser(Parse *pParse, const char *zSql, char **pzErrMsg){
+   /* Finalize */
+   sqlite3ParserFinalize(pParse);
+
++#ifdef EMSCRIPTEN
++  parse_complete_event(pParse->nErr == 0);
++#endif
++
+   return pParse->nErr;
+ }
+
+@@ -30,6 +45,13 @@ int sqlite3GetToken(const unsigned char *z, int *tokenType){
+   int i = 0;
+   /* Tokenization logic... */
+
++#ifdef EMSCRIPTEN
++  if (*tokenType != TK_SPACE && *tokenType != TK_ILLEGAL) {
++    char token[256];
++    int len = (i < 255) ? i : 255;
++    memcpy(token, z, len);
++    token[len] = '\0';
++    parse_token_event(token, *tokenType);
++  }
++#endif
++
+   return i;
+ }
