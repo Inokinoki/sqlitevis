@@ -1,0 +1,29 @@
+# Git files
+.git
+.gitignore
+
+# Build artifacts (will be rebuilt in container)
+build/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Patches (source files are copied)
+patches/
+
+# Node modules (if any)
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+

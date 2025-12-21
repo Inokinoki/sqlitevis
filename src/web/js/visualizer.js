@@ -52,12 +52,16 @@ class BTreeVisualizer {
             const rect = this.canvas.getBoundingClientRect();
             const dpr = window.devicePixelRatio || 1;
 
-            this.canvas.width = rect.width * dpr;
-            this.canvas.height = rect.height * dpr;
+            // Use actual container size (CSS will constrain it)
+            const width = rect.width;
+            const height = rect.height;
+
+            this.canvas.width = width * dpr;
+            this.canvas.height = height * dpr;
 
             this.ctx.scale(dpr, dpr);
-            this.canvas.style.width = rect.width + 'px';
-            this.canvas.style.height = rect.height + 'px';
+            this.canvas.style.width = width + 'px';
+            this.canvas.style.height = height + 'px';
 
             this.draw();
         };

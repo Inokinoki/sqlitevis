@@ -1,10 +1,12 @@
-.PHONY: all clean download-sqlite instrument build-wasm serve setup
+.PHONY: all clean download-sqlite instrument build-wasm serve setup docker-build docker-run docker-stop docker-clean
 
 # Configuration
 SQLITE_VERSION = 3450000
 SQLITE_YEAR = 2024
 SQLITE_URL = https://www.sqlite.org/$(SQLITE_YEAR)/sqlite-amalgamation-$(SQLITE_VERSION).zip
 EMCC = emcc
+DOCKER_IMAGE = sqlitevis
+DOCKER_PORT = 8000
 
 # Directories
 SQLITE_DIR = sqlite
@@ -83,6 +85,26 @@ clean-all: clean
 	@rm -rf $(SQLITE_DIR) $(BUILD_DIR)
 	@echo "All generated files removed"
 
+docker-build:
+	@echo "Building Docker image $(DOCKER_IMAGE)..."
+	@docker build -t $(DOCKER_IMAGE) .
+	@echo "Docker image built successfully"
+
+docker-run: docker-build
+	@echo "Starting Docker container on port $(DOCKER_PORT)..."
+	@echo "Access the app at http://localhost:$(DOCKER_PORT)/src/web/index.html"
+	@docker run -p $(DOCKER_PORT):$(DOCKER_PORT) $(DOCKER_IMAGE)
+
+docker-stop:
+	@echo "Stopping Docker containers..."
+	@docker ps -q --filter "ancestor=$(DOCKER_IMAGE)" | xargs docker stop 2>/dev/null || true
+	@echo "Docker containers stopped"
+
+docker-clean: docker-stop
+	@echo "Removing Docker image $(DOCKER_IMAGE)..."
+	@docker rmi $(DOCKER_IMAGE) 2>/dev/null || true
+	@echo "Docker cleanup complete"
+
 help:
 	@echo "SQLite WebAssembly Build System"
 	@echo ""
@@ -94,4 +116,11 @@ help:
 	@echo "  make serve          - Run development server"
 	@echo "  make clean          - Clean build files"
 	@echo "  make clean-all      - Remove all generated files"
+	@echo ""
+	@echo "Docker targets:"
+	@echo "  make docker-build   - Build Docker image"
+	@echo "  make docker-run     - Build and run Docker container"
+	@echo "  make docker-stop    - Stop running Docker containers"
+	@echo "  make docker-clean   - Remove Docker image and containers"
+	@echo ""
 	@echo "  make help           - Show this help"
