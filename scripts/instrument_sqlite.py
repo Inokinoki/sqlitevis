@@ -36,65 +36,82 @@ extern void btree_balance_event(int page_num, int num_cells);
         )
 
     # 2. Instrument allocateBtreePage function
-    allocate_pattern = r'(static int allocateBtreePage\([^)]+\)[^{]*\{[^}]+if\s*\(\s*rc\s*==\s*SQLITE_OK\s*\)\s*\{)'
-
-    def add_allocate_hook(match):
-        return match.group(1) + '''
+    # Only apply if not already instrumented and if we find a safe pattern
+    if 'page_allocate_event' not in content:
+        allocate_pattern = r'(static int allocateBtreePage\([^)]+\)[^{]*\{[^}]*?if\s*\(\s*rc\s*==\s*SQLITE_OK\s*\)\s*\{[^}]*?)(\n\s*(?:\*pPgno|pPgno|eMode))'
+        
+        def add_allocate_hook(match):
+            before = match.group(1)
+            after = match.group(2)
+            return before + '''
 #ifdef EMSCRIPTEN
     page_allocate_event((int)*pPgno, (int)eMode);
-#endif'''
-
-    content = re.sub(allocate_pattern, add_allocate_hook, content, flags=re.DOTALL)
+#endif
+''' + after
+        
+        content = re.sub(allocate_pattern, add_allocate_hook, content, flags=re.DOTALL, count=1)
 
     # 3. Instrument freePage function
-    free_pattern = r'(static int freePage[^{]*\{[^}]*\n)'
+    # Be more specific - look for the function body start and a safe insertion point
+    free_pattern = r'(static int freePage\([^)]+\)\s*\{[^}]*?)(\n\s*(?:if|return|assert|iPage))'
 
     def add_free_hook(match):
-        return match.group(1) + '''#ifdef EMSCRIPTEN
+        func_start = match.group(1)
+        next_line = match.group(2)
+        if 'page_free_event' not in func_start:
+            return func_start + next_line + '''
+#ifdef EMSCRIPTEN
   page_free_event((int)iPage);
 #endif
 '''
+        return func_start + next_line
 
-    content = re.sub(free_pattern, add_free_hook, content, flags=re.DOTALL)
+    # Only apply if we can find a safe pattern
+    if 'page_free_event' not in content:
+        content = re.sub(free_pattern, add_free_hook, content, flags=re.DOTALL, count=1)
 
     # 4. Instrument insertCell function
-    insert_pattern = r'(static\s+(?:void|int)\s+insertCell\([^)]+\)[^{]*\{(?:[^}]|(?:\{[^}]*\}))*)(return\s+(?:SQLITE_OK|rc);)'
-
-    def add_insert_hook(match):
-        return match.group(1) + '''
+    # Only apply if not already instrumented
+    if 'btree_insert_event' not in content:
+        insert_pattern = r'(static\s+(?:void|int)\s+insertCell\([^)]+\)\s*\{[^}]*?)(\n\s*return\s+(?:SQLITE_OK|rc);)'
+        
+        def add_insert_hook(match):
+            func_body = match.group(1)
+            return_stmt = match.group(2)
+            # Only insert if we're in a function body (has opening brace)
+            if '{' in func_body:
+                return func_body + '''
 #ifdef EMSCRIPTEN
   btree_insert_event(pPage->pgno, i, (const char*)pCell, sz);
 #endif
-  ''' + match.group(2)
-
-    content = re.sub(insert_pattern, add_insert_hook, content, flags=re.DOTALL)
+''' + return_stmt
+            return func_body + return_stmt
+        
+        content = re.sub(insert_pattern, add_insert_hook, content, flags=re.DOTALL, count=1)
 
     # 5. Instrument dropCell function for deletions
-    drop_pattern = r'(static void dropCell\([^)]+\)[^{]*\{[^\n]*\n)'
+    # Be more specific - ensure we're in the function body, not the signature
+    drop_pattern = r'(static void dropCell\([^)]+\)\s*\{[^}]*?)(\n\s*(?:if|return|pPage|idx))'
 
     def add_drop_hook(match):
-        return match.group(1) + '''#ifdef EMSCRIPTEN
+        func_start = match.group(1)
+        next_line = match.group(2)
+        if 'btree_delete_event' not in func_start:
+            return func_start + next_line + '''
+#ifdef EMSCRIPTEN
   btree_delete_event(pPage->pgno, idx);
 #endif
 '''
+        return func_start + next_line
 
-    content = re.sub(drop_pattern, add_drop_hook, content, flags=re.DOTALL)
+    # Only apply if we can find a safe pattern
+    if 'btree_delete_event' not in content:
+        content = re.sub(drop_pattern, add_drop_hook, content, flags=re.DOTALL, count=1)
 
     # 6. Instrument balance functions for page splits
-    balance_pattern = r'(static int balance\w*\([^)]+\)[^{]*\{[^}]{0,200})'
-
-    def add_balance_hook(match):
-        # Add hook near the start of balance functions
-        func_start = match.group(1)
-        if 'balance_nonroot' in func_start or 'balance_quick' in func_start:
-            return func_start + '''
-#ifdef EMSCRIPTEN
-  if (pParent) btree_balance_event(pParent->pgno, pParent->nCell);
-#endif
-'''
-        return func_start
-
-    content = re.sub(balance_pattern, add_balance_hook, content, flags=re.DOTALL)
+    # Skip for now - requires precise insertion points
+    # TODO: Add proper balance instrumentation with safe insertion points
+    print("  └─ Skipping balance hooks (requires manual instrumentation)")
 
     return content
 
@@ -123,19 +140,11 @@ extern void vdbe_complete_event(int result_code);
             )
 
     # Instrument sqlite3VdbeExec function
-    vdbe_exec_pattern = r'(int sqlite3VdbeExec\([^)]+\)[^{]*\{[^}]{0,500})'
-
-    def add_vdbe_start(match):
-        func_start = match.group(1)
-        if 'vdbe_start_event' not in func_start:
-            return func_start + '''
-#ifdef EMSCRIPTEN
-  vdbe_start_event(p->nOp);
-#endif
-'''
-        return func_start
-
-    content = re.sub(vdbe_exec_pattern, add_vdbe_start, content, flags=re.DOTALL)
+    # Skip VDBE instrumentation for now as it requires precise insertion points
+    # This can be added manually or with more sophisticated pattern matching
+    # For now, we'll skip to avoid compilation errors
+    print("  └─ Skipping VDBE hooks (requires manual instrumentation)")
+    # TODO: Add proper VDBE instrumentation with safe insertion points
 
     # Instrument opcode execution loop
     opcode_pattern = r'(for\s*\([^)]*pc[^)]*\)[^{]*\{[^}]{0,200}Op\s*\*pOp\s*=\s*&aOp\[pc\];)'
