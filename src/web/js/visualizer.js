@@ -20,6 +20,152 @@ class BTreeVisualizer {
         this.animations = [];
         this.highlightedNodes = new Set();
 
+        // Parse tree state
+        this.parseTree = null;
+        this.parseTokens = [];
+        this.currentSQL = '';
+
+        // VDBE state
+        this.vdbeOpcodes = [];
+        this.vdbeCurrentPc = -1;
+
+        // Track last accessed page for parent-child relationships
+        this.lastAccessedPage = null;
+
+        // Store ResizeObserver for cleanup
+        this.resizeObserver = null;
+
+        // SQLite token type mapping (numeric -> name)
+        this.tokenTypeNames = {
+            1: 'TK_ILLEGAL',
+            2: 'TK_SPACE',
+            3: 'TK_UNCLOSED_STRING',
+            4: 'TK_COMMENT',
+            5: 'TK_FUNCTION',
+            6: 'TK_COLUMN',
+            7: 'TK_AGG_COLUMN',
+            8: 'TK_AGG_FUNCTION',
+            9: 'TK_VARIABLE',
+            10: 'TK_CAST',
+            11: 'TK_LP',
+            12: 'TK_RP',
+            13: 'TK_LSQUARE',
+            14: 'TK_RSQUARE',
+            15: 'TK_SEMI',
+            16: 'TK_TABLE',
+            17: 'TK_CREATE',
+            18: 'TK_IF',
+            19: 'TK_NOT',
+            20: 'TK_NE',
+            21: 'TK_EQ',
+            22: 'TK_GT',
+            23: 'TK_LE',
+            24: 'TK_LT',
+            25: 'TK_GE',
+            26: 'TK_IS',
+            27: 'TK_IN',
+            28: 'TK_LIKE',
+            29: 'TK_GLOB',
+            30: 'TK_BETWEEN',
+            31: 'TK_EXISTS',
+            32: 'TK_NO',
+            33: 'TK_NOTNULL',
+            34: 'TK_NEVER',
+            35: 'TK_NULL',
+            36: 'TK_ID',
+            37: 'TK_OFFSET',
+            38: 'TK_SELECT',
+            39: 'TK_DISTINCT',
+            40: 'TK_DOT',
+            41: 'TK_FROM',
+            42: 'TK_JOIN',
+            43: 'TK_USING',
+            44: 'TK_ORDER',
+            45: 'TK_GROUP',
+            46: 'TK_HAVING',
+            47: 'TK_LIMIT',
+            48: 'TK_WHERE',
+            49: 'TK_THEN',
+            50: 'TK_AND',
+            51: 'TK_OR',
+            52: 'TK_NOTHING',
+            53: 'TK_COMMA',
+            54: 'TK_INSERT',
+            55: 'TK_DELETE',
+            56: 'TK_UPDATE',
+            57: 'TK_SET',
+            58: 'TK_VALUES',
+            59: 'TK_LIKE_OP',
+            60: 'TK_ISNOT',
+            61: 'TK_EXECUTE',
+            62: 'TK_BEGIN',
+            63: 'TK_END',
+            64: 'TK_ROLLBACK',
+            65: 'TK_TRANSACTION',
+            66: 'TK_COMMIT',
+            67: 'TK_INTO',
+            68: 'TK_REPLACE',
+            69: 'TK_ON',
+            70: 'TK_INDEX',
+            71: 'TK_ALTER',
+            72: 'TK_TO',
+            73: 'TK_BY',
+            74: 'TK_OF',
+            75: 'TK_AUTOINCR',
+            76: 'TK_BLOB',
+            77: 'TK_FLOAT',
+            78: 'TK_INTEGER',
+            79: 'TK_KEY',
+            80: 'TK_CONSTRAINT',
+            81: 'TK_DEFAULT',
+            82: 'TK_COLLATE',
+            83: 'TK_NK_SEMI',
+            84: 'TK_RROW',
+            85: 'TK_DEFERRED',
+            86: 'TK_IMMEDIATE',
+            87: 'TK_EXCLUSIVE',
+            88: 'TK_CHECK',
+            89: 'TK_PRIMARY',
+            90: 'TK_UNIQUE',
+            91: 'TK_FOREIGN',
+            92: 'TK_CASCADE',
+            93: 'TK_ASC',
+            94: 'TK_DESC',
+            95: 'TK_ATTACH',
+            96: 'TK_DETACH',
+            97: 'TK_EACH',
+            98: 'TK_FOREACH',
+            99: 'TK_MODULE',
+            100: 'TK_PRAGMA',
+            101: 'TK_PLUS',
+            102: 'TK_MINUS',
+            103: 'TK_STAR',
+            104: 'TK_SLASH',
+            105: 'TK_REM',
+            106: 'TK_CONCAT',
+            107: 'TK_BITAND',
+            108: 'TK_BITOR',
+            109: 'TK_LSHIFT',
+            110: 'TK_RSHIFT',
+            111: 'TK_BITNOT',
+            112: 'TK_STRING',
+            113: 'TK_JOIN_KW',
+            114: 'TK_CONSTRAINT',
+            115: 'TK_CHECK',
+            116: 'TK_DEFAULT',
+            117: 'TK_NULL',
+            118: 'TK_REFERENCES',
+            119: 'TK_TRIGGER',
+            120: 'TK_RECURSIVE',
+            121: 'TK_VACUUM',
+            122: 'TK_WITH',
+            123: 'TK_REINDEX',
+            124: 'TK_ANALYZE',
+            125: 'TK_DROP',
+            126: 'TK_OFFSET',
+            127: 'TK_PRAGMA'
+        };
+
         // Layout
         this.nodeWidth = 120;
         this.nodeHeight = 60;
@@ -49,25 +195,52 @@ class BTreeVisualizer {
      */
     setupCanvas() {
         const resize = () => {
-            const rect = this.canvas.getBoundingClientRect();
+            const parent = this.canvas.parentElement;
+            if (!parent) return;
+
             const dpr = window.devicePixelRatio || 1;
 
-            // Use actual container size (CSS will constrain it)
-            const width = rect.width;
-            const height = rect.height;
+            // Get parent's dimensions
+            const parentRect = parent.getBoundingClientRect();
+            const width = parentRect.width;
+            const height = parentRect.height;
 
-            this.canvas.width = width * dpr;
-            this.canvas.height = height * dpr;
-
-            this.ctx.scale(dpr, dpr);
+            // Set canvas display size
             this.canvas.style.width = width + 'px';
             this.canvas.style.height = height + 'px';
 
+            // Set canvas internal size (for drawing)
+            this.canvas.width = width * dpr;
+            this.canvas.height = height * dpr;
+
+            // Scale for retina displays
+            this.ctx.scale(dpr, dpr);
+
+            // Redraw after resize
             this.draw();
         };
 
-        window.addEventListener('resize', resize);
+        // Initial sizing
         resize();
+
+        // Watch for window resize
+        window.addEventListener('resize', resize);
+
+        // Watch for container size changes
+        this.resizeObserver = new ResizeObserver(() => {
+            resize();
+        });
+        this.resizeObserver.observe(this.canvas.parentElement);
+    }
+
+    /**
+     * Cleanup method to disconnect observers and prevent memory leaks
+     */
+    destroy() {
+        if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+        }
     }
 
     /**
@@ -103,13 +276,16 @@ class BTreeVisualizer {
 
     /**
      * Handle B-tree page allocation
+     * @param {number} pageNum - Page number
+     * @param {number} pageType - Page type (0=interior, 1=leaf)
+     * @param {number|null} parentPage - Parent page number (optional)
      */
-    addPage(pageNum, pageType) {
+    addPage(pageNum, pageType, parentPage = null) {
         const node = {
             page: pageNum,
             type: pageType, // 0: interior, 1: leaf
             cells: [],
-            parent: null,
+            parent: parentPage,
             children: [],
             x: 0,
             y: 0,
@@ -117,6 +293,18 @@ class BTreeVisualizer {
         };
 
         this.nodes.set(pageNum, node);
+
+        // If we have a parent, add this page as a child
+        if (parentPage !== null) {
+            const parentNode = this.nodes.get(parentPage);
+            if (parentNode && !parentNode.children.includes(pageNum)) {
+                parentNode.children.push(pageNum);
+            }
+        }
+
+        // Track this as the last accessed page
+        this.lastAccessedPage = pageNum;
+
         this.layout();
         this.draw();
     }
@@ -135,6 +323,9 @@ class BTreeVisualizer {
         };
 
         node.cells.splice(cellIdx, 0, cell);
+
+        // Track this as the last accessed page
+        this.lastAccessedPage = pageNum;
 
         // Animation
         if (this.showTransitions) {
@@ -163,18 +354,29 @@ class BTreeVisualizer {
 
     /**
      * Handle page split
+     * When a page splits, the new page is a sibling of the original
+     * (they share the same parent)
      */
     splitPage(originalPage, newPage, splitCell) {
         const original = this.nodes.get(originalPage);
         if (!original) return;
 
-        // Create new page
-        this.addPage(newPage, original.type);
+        // Create new page with the same parent as the original
+        // This establishes the proper sibling relationship
+        this.addPage(newPage, original.type, original.parent);
         const newNode = this.nodes.get(newPage);
 
         // Move cells
         const cellsToMove = original.cells.splice(splitCell);
         newNode.cells = cellsToMove;
+
+        // If the original had a parent, make sure the new page is also a child
+        if (original.parent !== null) {
+            const parentNode = this.nodes.get(original.parent);
+            if (parentNode && !parentNode.children.includes(newPage)) {
+                parentNode.children.push(newPage);
+            }
+        }
 
         // Animation
         if (this.showTransitions) {
@@ -482,7 +684,16 @@ class BTreeVisualizer {
      */
     setViewMode(mode) {
         this.viewMode = mode;
-        this.draw();
+
+        // Render the appropriate view
+        if (mode === 'parse') {
+            this.drawParseTree(true);  // true = waiting for SQL
+        } else if (mode === 'vdbe') {
+            this.drawVdbeList('Idle', 'Execute SQL to see VDBE execution');
+        } else {
+            // B-tree mode
+            this.draw();
+        }
     }
 
     /**
@@ -497,5 +708,356 @@ class BTreeVisualizer {
      */
     setShowTransitions(show) {
         this.showTransitions = show;
+    }
+
+    /**
+     * Show parse tree visualization
+     */
+    showParseStart(sql) {
+        if (this.viewMode !== 'parse') return;
+
+        // Initialize parse tree
+        this.currentSQL = sql;
+        this.parseTokens = [];
+        this.parseTree = this.buildParseTree(sql);
+        this.drawParseTree(false);  // false = not waiting, has SQL
+    }
+
+    /**
+     * Show parse token
+     */
+    showParseToken(token, type) {
+        if (this.viewMode !== 'parse') return;
+
+        // Validate inputs
+        if (token === null || token === undefined) {
+            console.warn('Invalid token value:', token);
+            token = '';
+        }
+
+        if (typeof token !== 'string') {
+            console.warn('Token is not a string:', typeof token);
+            token = String(token);
+        }
+
+        // Truncate very long tokens to prevent rendering issues
+        const MAX_TOKEN_LENGTH = 100;
+        if (token.length > MAX_TOKEN_LENGTH) {
+            token = token.substring(0, MAX_TOKEN_LENGTH) + '...';
+        }
+
+        // Convert numeric type to readable name
+        const typeName = this.tokenTypeNames[type] || `TK_${type}`;
+
+        // Add token to list
+        this.parseTokens.push({ token, type: typeName });
+        this.drawParseTree(false);  // false = not waiting, has SQL
+    }
+
+    /**
+     * Show parse complete
+     */
+    showParseComplete(success) {
+        if (this.viewMode !== 'parse') return;
+
+        // Finalize parse tree
+        this.drawParseTree(false);  // false = not waiting, has SQL
+    }
+
+    /**
+     * Build a simple parse tree from SQL
+     */
+    buildParseTree(sql) {
+        // Simple SQL parser for visualization
+        const tokens = this.tokenizeSQL(sql);
+        const tree = {
+            type: 'statement',
+            text: sql,
+            children: []
+        };
+
+        let current = tree;
+        let depth = 0;
+
+        for (const token of tokens) {
+            if (token.type === 'keyword') {
+                if (['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER'].includes(token.text)) {
+                    const node = {
+                        type: 'command',
+                        text: token.text,
+                        children: []
+                    };
+                    tree.children.push(node);
+                    current = node;
+                }
+            } else if (token.type === 'identifier' || token.type === 'table') {
+                if (current) {
+                    current.children.push({
+                        type: 'identifier',
+                        text: token.text,
+                        children: []
+                    });
+                }
+            }
+        }
+
+        return tree;
+    }
+
+    /**
+     * Tokenize SQL for visualization
+     */
+    tokenizeSQL(sql) {
+        const tokens = [];
+        const keywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE', 'DROP', 'ALTER', 'INDEX', 'AND', 'OR', 'NOT', 'NULL'];
+        const regex = /(\w+)|([\(\),;])/g;
+        let match;
+
+        while ((match = regex.exec(sql)) !== null) {
+            const text = match[0];
+            const type = keywords.includes(text.toUpperCase()) ? 'keyword' :
+                        text.match(/[A-Za-z_]\w*/) ? 'identifier' : 'symbol';
+            tokens.push({ text, type });
+        }
+
+        return tokens;
+    }
+
+    /**
+     * Draw parse tree visualization
+     */
+    drawParseTree(waiting = false) {
+        const rect = this.canvas.getBoundingClientRect();
+        this.ctx.fillStyle = this.colors.background;
+        this.ctx.fillRect(0, 0, rect.width, rect.height);
+
+        // Draw title
+        this.ctx.fillStyle = this.colors.text;
+        this.ctx.font = 'bold 16px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('SQL Parse Tree', rect.width / 2, 30);
+
+        // Show waiting message if no SQL yet
+        if (waiting || !this.currentSQL) {
+            this.ctx.font = '14px sans-serif';
+            this.ctx.fillStyle = this.colors.textLight;
+            this.ctx.fillText('Execute a SQL query to see its parse tree structure', rect.width / 2, rect.height / 2 - 20);
+
+            this.ctx.font = '13px monospace';
+            this.ctx.fillStyle = '#94a3b8';
+            this.ctx.fillText('Example: SELECT id, name FROM users;', rect.width / 2, rect.height / 2 + 20);
+            return;
+        }
+
+        // Draw SQL
+        this.ctx.font = '14px monospace';
+        this.ctx.fillStyle = this.colors.textLight;
+        this.ctx.fillText(this.currentSQL || 'No SQL', rect.width / 2, 60);
+
+        // Draw tree
+        if (this.parseTree) {
+            this.drawTreeNode(this.parseTree, rect.width / 2, 100, 0);
+        }
+
+        // Draw tokens
+        if (this.parseTokens.length > 0) {
+            this.drawParseTokens();
+        }
+
+        // Draw status
+        this.ctx.font = '12px sans-serif';
+        this.ctx.fillStyle = '#10b981';
+        this.ctx.fillText('Parse Complete', rect.width / 2, rect.height - 20);
+    }
+
+    /**
+     * Draw tree node recursively
+     */
+    drawTreeNode(node, x, y, depth) {
+        const nodeSize = 40;
+        const levelGap = 80;
+
+        // Draw connections to children
+        if (node.children && node.children.length > 0) {
+            const childWidth = (node.children.length - 1) * 100;
+            let startX = x - childWidth / 2;
+
+            node.children.forEach((child, i) => {
+                const childX = startX + i * 100;
+                const childY = y + levelGap;
+
+                // Draw connection line
+                this.ctx.strokeStyle = this.colors.connection;
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, y + nodeSize / 2);
+                this.ctx.lineTo(childX, childY - nodeSize / 2);
+                this.ctx.stroke();
+
+                // Recursively draw child
+                this.drawTreeNode(child, childX, childY, depth + 1);
+            });
+        }
+
+        // Draw node
+        const color = node.type === 'command' ? this.colors.nodeInternal :
+                     node.type === 'identifier' ? this.colors.nodeLeaf :
+                     this.colors.node;
+
+        this.ctx.fillStyle = color;
+        this.ctx.beginPath();
+        this.ctx.arc(x, y, nodeSize / 2, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = this.colors.border;
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
+
+        // Draw label
+        this.ctx.fillStyle = 'white';
+        this.ctx.font = 'bold 11px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText(node.text.substring(0, 8), x, y);
+    }
+
+    /**
+     * Draw parse tokens list
+     */
+    drawParseTokens() {
+        const rect = this.canvas.getBoundingClientRect();
+        const startY = 400;
+        const tokenWidth = 150;
+        const tokenHeight = 30;
+
+        this.ctx.fillStyle = this.colors.textLight;
+        this.ctx.font = '12px sans-serif';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(`Tokens (${this.parseTokens.length}):`, 20, startY);
+
+        this.parseTokens.forEach((token, i) => {
+            const x = 20;
+            const y = startY + 30 + i * (tokenHeight + 5);
+
+            // Token background
+            const color = token.type === 'keyword' ? this.colors.nodeInternal :
+                         token.type === 'identifier' ? this.colors.nodeLeaf :
+                         this.colors.background;
+
+            this.ctx.fillStyle = color;
+            this.ctx.fillRect(x, y, tokenWidth, tokenHeight);
+
+            this.ctx.strokeStyle = this.colors.border;
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x, y, tokenWidth, tokenHeight);
+
+            // Token text
+            this.ctx.fillStyle = 'white';
+            this.ctx.font = '11px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(`${token.token} (${token.type})`, x + 10, y + tokenHeight / 2);
+        });
+    }
+
+    /**
+     * Show VDBE execution start
+     */
+    showVdbeStart(numOpcodes) {
+        if (this.viewMode === 'vdbe') {
+            this.vdbeOpcodes = [];
+            this.vdbeCurrentPc = -1;
+            this.drawVdbeList('Program starting', `Expected ${numOpcodes} opcodes`);
+        }
+    }
+
+    /**
+     * Show VDBE opcode execution
+     */
+    showVdbeOpcode(pc, opcode, p1, p2, p3) {
+        if (this.viewMode !== 'vdbe') return;
+
+        // Validate inputs
+        if (typeof pc !== 'number' || pc < 0) {
+            console.warn('Invalid program counter:', pc);
+            return;
+        }
+
+        if (typeof opcode !== 'string') {
+            console.warn('Invalid opcode name:', opcode);
+            opcode = 'Unknown';
+        }
+
+        // Store or update opcode at this position
+        this.vdbeOpcodes[pc] = {
+            pc: pc,
+            opcode: opcode,
+            p1: p1 !== undefined ? p1 : 0,
+            p2: p2 !== undefined ? p2 : 0,
+            p3: p3 !== undefined ? p3 : 0
+        };
+        this.vdbeCurrentPc = pc;
+        this.drawVdbeList('Executing', `Opcode ${pc + 1} of ${this.vdbeOpcodes.length}`);
+    }
+
+    /**
+     * Show VDBE execution complete
+     */
+    showVdbeComplete(resultCode) {
+        if (this.viewMode === 'vdbe') {
+            this.drawVdbeList('Complete', `Result code: ${resultCode}`);
+        }
+    }
+
+    /**
+     * Draw VDBE opcode list with current execution highlighted
+     */
+    drawVdbeList(state, info) {
+        const rect = this.canvas.getBoundingClientRect();
+        this.ctx.fillStyle = this.colors.background;
+        this.ctx.fillRect(0, 0, rect.width, rect.height);
+
+        // Draw title and state
+        this.ctx.fillStyle = this.colors.text;
+        this.ctx.font = 'bold 16px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('VDBE Program Execution', rect.width / 2, 30);
+        this.ctx.font = '14px sans-serif';
+        this.ctx.fillText(`${state} - ${info}`, rect.width / 2, 55);
+
+        // Draw all opcodes
+        const startY = 90;
+        const lineHeight = 28;
+
+        this.vdbeOpcodes.forEach((op, index) => {
+            const y = startY + index * lineHeight;
+            const isCurrent = index === this.vdbeCurrentPc;
+
+            // Highlight current instruction
+            if (isCurrent) {
+                this.ctx.fillStyle = this.colors.nodeHighlight;
+                this.ctx.fillRect(30, y - 5, Math.min(500, rect.width - 60), lineHeight - 2);
+            }
+
+            // Draw opcode
+            this.ctx.fillStyle = isCurrent ? 'white' : this.colors.text;
+            this.ctx.font = '13px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(
+                `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`,
+                40,
+                y + 12
+            );
+        });
+
+        // Show instruction count
+        this.ctx.fillStyle = this.colors.textLight;
+        this.ctx.font = '12px sans-serif';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(
+            `Total opcodes: ${this.vdbeOpcodes.length}`,
+            30,
+            rect.height - 20
+        );
     }
 }

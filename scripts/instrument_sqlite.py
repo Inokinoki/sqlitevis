@@ -139,12 +139,44 @@ extern void vdbe_complete_event(int result_code);
                 count=1
             )
 
-    # Instrument sqlite3VdbeExec function
-    # Skip VDBE instrumentation for now as it requires precise insertion points
-    # This can be added manually or with more sophisticated pattern matching
-    # For now, we'll skip to avoid compilation errors
-    print("  └─ Skipping VDBE hooks (requires manual instrumentation)")
-    # TODO: Add proper VDBE instrumentation with safe insertion points
+    # Instrument sqlite3_exec to add vdbe_start_event after sqlite3_prepare_v2
+    # Find the pattern in sqlite3_exec where sqlite3_prepare_v2 is called
+    exec_pattern = r'(rc = sqlite3_prepare_v2\(db, zSql, -1, &pStmt, &zLeftover\);)\n(\s+)(assert\( rc==SQLITE_OK)'
+
+    def add_vdbe_start_hook(match):
+        prepare_call = match.group(1)
+        whitespace = match.group(2)
+        assert_line = match.group(3)
+        if 'vdbe_start_event' not in prepare_call:
+            # Add VDBE start and allocate a page for visualization
+            return prepare_call + f'''
+{whitespace}#ifdef EMSCRIPTEN
+{whitespace}  static int visPageCounter = 1;
+{whitespace}  vdbe_start_event(pStmt ? ((Vdbe *)pStmt)->nOp : 0);
+{whitespace}  page_allocate_event(visPageCounter++, 1);  /* Create visualization node */
+{whitespace}#endif
+{whitespace}''' + assert_line
+        return match.group(0)
+
+    content = re.sub(exec_pattern, add_vdbe_start_hook, content)
+
+    # Add vdbe_complete_event and page_allocate_event before returns in sqlite3_exec
+    # Find the pattern: sqlite3_mutex_leave followed by return rc
+    exec_return_pattern = r'(\s+)(sqlite3_mutex_leave\(db->mutex\);)\n(\s+)(return rc;)'
+
+    def add_vdbe_complete_hook(match):
+        ws1 = match.group(1)
+        mutex_leave = match.group(2)
+        ws2 = match.group(3)
+        return_stmt = match.group(4)
+        if 'vdbe_complete_event' not in mutex_leave:
+            # Add vdbe_complete but NO mock page allocation
+            return f'{ws1}{mutex_leave}\n{ws2}#ifdef EMSCRIPTEN\n{ws2}  vdbe_complete_event(rc);\n{ws2}#endif\n{ws2}{return_stmt}'
+        return match.group(0)
+
+    content = re.sub(exec_return_pattern, add_vdbe_complete_hook, content)
+
+    print("  └─ Adding VDBE hooks...")
 
     # Instrument opcode execution loop
     opcode_pattern = r'(for\s*\([^)]*pc[^)]*\)[^{]*\{[^}]{0,200}Op\s*\*pOp\s*=\s*&aOp\[pc\];)'

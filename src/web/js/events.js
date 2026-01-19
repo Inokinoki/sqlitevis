@@ -40,19 +40,33 @@ class EventManager {
      * Handle an event from the WASM module
      */
     handleEvent(eventType, dataJson) {
-        const event = {
-            id: this.eventCount++,
-            type: eventType,
-            typeName: this.eventTypeNames[eventType] || 'UNKNOWN',
-            category: this.eventCategories[eventType] || 'other',
-            data: JSON.parse(dataJson),
-            timestamp: Date.now()
-        };
+        try {
+            // Parse JSON data safely
+            let data;
+            try {
+                data = JSON.parse(dataJson);
+            } catch (parseError) {
+                console.error('Failed to parse event data:', parseError, 'Raw data:', dataJson);
+                // Create minimal event with raw data
+                data = { _raw: dataJson, _parseError: true };
+            }
 
-        this.events.push(event);
-        this.logEvent(event);
-        this.notifyListeners(event);
-        this.updateStats();
+            const event = {
+                id: this.eventCount++,
+                type: eventType,
+                typeName: this.eventTypeNames[eventType] || 'UNKNOWN',
+                category: this.eventCategories[eventType] || 'other',
+                data: data,
+                timestamp: Date.now()
+            };
+
+            this.events.push(event);
+            this.logEvent(event);
+            this.notifyListeners(event);
+            this.updateStats();
+        } catch (error) {
+            console.error('Error handling event:', error, 'Event type:', eventType, 'Data:', dataJson);
+        }
     }
 
     /**
@@ -78,11 +92,23 @@ class EventManager {
     notifyListeners(event) {
         // Notify specific type listeners
         const typeListeners = this.listeners.get(event.type) || [];
-        typeListeners.forEach(callback => callback(event));
+        typeListeners.forEach(callback => {
+            try {
+                callback(event);
+            } catch (error) {
+                console.error('Error in event listener for type', event.type, ':', error);
+            }
+        });
 
         // Notify wildcard listeners
         const allListeners = this.listeners.get('*') || [];
-        allListeners.forEach(callback => callback(event));
+        allListeners.forEach(callback => {
+            try {
+                callback(event);
+            } catch (error) {
+                console.error('Error in wildcard event listener:', error);
+            }
+        });
     }
 
     /**

@@ -9,6 +9,25 @@ class SQLiteVisApp {
         this.sqliteModule = null;
         this.visualizer = null;
         this.isInitialized = false;
+        // Debug mode - can be toggled via console: app.setDebugMode(true)
+        this.debugMode = false;
+    }
+
+    /**
+     * Set debug mode for verbose logging
+     */
+    setDebugMode(enabled) {
+        this.debugMode = enabled;
+        console.log('Debug mode:', enabled ? 'ENABLED' : 'DISABLED');
+    }
+
+    /**
+     * Debug logging helper
+     */
+    debugLog(...args) {
+        if (this.debugMode) {
+            console.log(...args);
+        }
     }
 
     /**
@@ -24,13 +43,15 @@ class SQLiteVisApp {
             // Connect event manager to visualizer
             this.connectEvents();
 
+            // Set initialized flag BEFORE loading SQLite so events are processed
+            this.isInitialized = true;
+
             // Initialize SQLite WASM
             await this.initSQLite();
 
             // Setup UI event handlers
             this.setupUIHandlers();
 
-            this.isInitialized = true;
             this.updateStatus('Ready');
             this.hideLoading();
 
@@ -47,15 +68,29 @@ class SQLiteVisApp {
     async initSQLite() {
         // Check if SQLite module loader exists
         if (typeof createSQLiteModule === 'undefined') {
-            // For development without WASM, use mock
-            console.warn('SQLite WASM not found, using mock mode');
-            this.useMockMode();
-            return;
+            throw new Error('SQLite WASM module not found. Please build the project using "make build-wasm"');
         }
 
+        // Store reference to self for event handler
+        const self = this;
+
         try {
+            // Register event handler BEFORE loading the module
+            // This ensures we can capture events during SQLite initialization
+            window.sqliteVisEventHandler = (eventType, eventData) => {
+                // Only handle events if eventManager exists and app is initialized
+                if (typeof eventManager !== 'undefined' && self.isInitialized) {
+                    try {
+                        eventManager.handleEvent(eventType, eventData);
+                    } catch (e) {
+                        console.error('Event handler error:', e);
+                    }
+                }
+            };
+
+            // Load the module
             this.sqliteModule = await createSQLiteModule();
-            console.log('SQLite WASM module loaded');
+            this.debugLog('SQLite WASM module loaded successfully');
 
             // Allocate memory for database path string
             const dbPath = ':memory:'; // Use in-memory database
@@ -70,37 +105,47 @@ class SQLiteVisApp {
             const result = this.sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
 
             if (result !== 0) {
-                const errPtr = this.sqliteModule._sqlite3_errmsg(dbPtrPtr);
-                const errMsg = this.sqliteModule.UTF8ToString(errPtr);
+                // Try to read error - handle potential HEAP32 access issues
+                let errMsg = 'Unknown error';
+                try {
+                    if (this.sqliteModule.HEAP32) {
+                        const dbHandle = this.sqliteModule.HEAP32[dbPtrPtr >> 2];
+                        if (dbHandle) {
+                            const errPtr = this.sqliteModule._sqlite3_errmsg(dbHandle);
+                            errMsg = this.sqliteModule.UTF8ToString(errPtr);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error reading SQLite error message:', e);
+                }
+                this.sqliteModule._free(dbPathPtr);
+                this.sqliteModule._free(dbPtrPtr);
                 throw new Error('Failed to open database: ' + errMsg);
             }
 
             // Read the database pointer from memory
+            if (!this.sqliteModule.HEAP32) {
+                throw new Error('HEAP32 not available on module - cannot read database pointer');
+            }
             this.db = this.sqliteModule.HEAP32[dbPtrPtr >> 2];
 
             // Free temporary memory
             this.sqliteModule._free(dbPathPtr);
             this.sqliteModule._free(dbPtrPtr);
 
-            console.log('SQLite initialized successfully (in-memory database)');
+            this.debugLog('SQLite initialized successfully (in-memory database)');
+            this.debugLog('Database handle:', this.db);
+
+            // Clear initialization events from the log
+            // SQLite fires internal events during sqlite3_open() that we don't want to show
+            if (typeof eventManager !== 'undefined') {
+                eventManager.clear();
+                this.debugLog('Cleared initialization events');
+            }
         } catch (error) {
             console.error('SQLite initialization failed:', error);
-            console.log('Falling back to mock mode');
-            this.useMockMode();
+            throw error;
         }
-    }
-
-    /**
-     * Use mock mode for development without WASM
-     */
-    useMockMode() {
-        console.log('Running in mock mode');
-
-        // Simulate some events for testing
-        setTimeout(() => {
-            eventManager.handleEvent(0, '{"pageSize":4096,"numPages":1}');
-            eventManager.handleEvent(6, '{"page":1,"type":1}');
-        }, 500);
     }
 
     /**
@@ -109,34 +154,84 @@ class SQLiteVisApp {
     connectEvents() {
         // B-tree events
         eventManager.on(0, (e) => { // BTREE_OPEN
+            this.debugLog('[BTREE_OPEN] Page size:', e.data.pageSize, 'Pages:', e.data.numPages);
             this.visualizer.pageSize = e.data.pageSize;
         });
 
-        eventManager.on(6, (e) => { // PAGE_ALLOCATE
-            this.visualizer.addPage(e.data.page, e.data.type);
-        });
-
-        eventManager.on(7, (e) => { // PAGE_FREE
-            this.visualizer.nodes.delete(e.data.page);
-            this.visualizer.layout();
-            this.visualizer.draw();
+        eventManager.on(1, (e) => { // BTREE_CLOSE
+            this.debugLog('[BTREE_CLOSE] B-tree closed');
+            // B-tree close doesn't need visualization
         });
 
         eventManager.on(2, (e) => { // BTREE_INSERT
+            this.debugLog('[BTREE_INSERT] Page:', e.data.page, 'Cell:', e.data.cell, 'KeyLen:', e.data.keyLen);
             this.visualizer.addCell(e.data.page, e.data.cell, e.data.keyLen);
         });
 
         eventManager.on(3, (e) => { // BTREE_DELETE
+            this.debugLog('[BTREE_DELETE] Page:', e.data.page, 'Cell:', e.data.cell);
             this.visualizer.deleteCell(e.data.page, e.data.cell);
         });
 
         eventManager.on(4, (e) => { // BTREE_SPLIT
+            this.debugLog('[BTREE_SPLIT] Original:', e.data.originalPage, 'New:', e.data.newPage, 'SplitCell:', e.data.splitCell);
             this.visualizer.splitPage(
                 e.data.originalPage,
                 e.data.newPage,
                 e.data.splitCell
             );
         });
+
+        eventManager.on(5, (e) => { // BTREE_BALANCE
+            this.debugLog('[BTREE_BALANCE] Page:', e.data.page, 'NumCells:', e.data.numCells);
+            // Could add visualization for balancing operation
+        });
+
+        eventManager.on(6, (e) => { // PAGE_ALLOCATE
+            this.debugLog('[PAGE_ALLOCATE] Page:', e.data.page, 'Type:', e.data.type);
+            this.visualizer.addPage(e.data.page, e.data.type);
+        });
+
+        eventManager.on(7, (e) => { // PAGE_FREE
+            this.debugLog('[PAGE_FREE] Page:', e.data.page);
+            this.visualizer.nodes.delete(e.data.page);
+            this.visualizer.layout();
+            this.visualizer.draw();
+        });
+
+        // Parse events
+        eventManager.on(8, (e) => { // PARSE_START
+            this.debugLog('[PARSE_START] SQL:', e.data.sql);
+            this.visualizer.showParseStart(e.data.sql);
+        });
+
+        eventManager.on(9, (e) => { // PARSE_TOKEN
+            this.debugLog('[PARSE_TOKEN] Token:', e.data.token, 'Type:', e.data.type);
+            this.visualizer.showParseToken(e.data.token, e.data.type);
+        });
+
+        eventManager.on(10, (e) => { // PARSE_COMPLETE
+            this.debugLog('[PARSE_COMPLETE] Success:', e.data.success);
+            this.visualizer.showParseComplete(e.data.success);
+        });
+
+        // VDBE events
+        eventManager.on(11, (e) => { // VDBE_START
+            this.debugLog('[VDBE_START] NumOpcodes:', e.data.numOpcodes);
+            this.visualizer.showVdbeStart(e.data.numOpcodes);
+        });
+
+        eventManager.on(12, (e) => { // VDBE_OPCODE
+            this.debugLog('[VDBE_OPCODE] PC:', e.data.pc, 'Opcode:', e.data.opcode, 'P1:', e.data.p1, 'P2:', e.data.p2, 'P3:', e.data.p3);
+            this.visualizer.showVdbeOpcode(e.data.pc, e.data.opcode, e.data.p1, e.data.p2, e.data.p3);
+        });
+
+        eventManager.on(13, (e) => { // VDBE_COMPLETE
+            this.debugLog('[VDBE_COMPLETE] ResultCode:', e.data.resultCode);
+            this.visualizer.showVdbeComplete(e.data.resultCode);
+        });
+
+        this.debugLog('All event handlers registered successfully');
     }
 
     /**
@@ -204,59 +299,13 @@ class SQLiteVisApp {
         this.updateStatus('Executing SQL...');
 
         try {
-            // Emit parse start event (properly escape SQL for JSON)
-            eventManager.handleEvent(8, JSON.stringify({ sql: sql }));
-
-            // In mock mode, simulate some operations
-            if (!this.sqliteModule) {
-                this.executeMockSQL(sql);
-                return;
-            }
-
-            // Execute real SQL (to be implemented with WASM)
+            // Execute real SQL with WASM
             this.executeRealSQL(sql);
 
         } catch (error) {
             this.showOutput('Error: ' + error.message, 'error');
             this.updateStatus('Error');
         }
-    }
-
-    /**
-     * Execute mock SQL for testing
-     */
-    executeMockSQL(sql) {
-        const sqlUpper = sql.toUpperCase();
-
-        if (sqlUpper.includes('CREATE TABLE')) {
-            // Simulate table creation
-            eventManager.handleEvent(6, '{"page":1,"type":1}');
-            this.showOutput('Table created (mock)', 'success');
-        }
-
-        if (sqlUpper.includes('INSERT INTO')) {
-            // Simulate insertions
-            const matches = sql.match(/INSERT INTO/gi);
-            const count = matches ? matches.length : 1;
-
-            for (let i = 0; i < count; i++) {
-                setTimeout(() => {
-                    eventManager.handleEvent(2, `{"page":1,"cell":${i},"keyLen":16}`);
-                }, i * 200);
-            }
-
-            this.showOutput(`Inserted ${count} row(s) (mock)`, 'success');
-        }
-
-        if (sqlUpper.includes('SELECT')) {
-            // Simulate query
-            this.showOutput('<table><tr><th>id</th><th>name</th><th>age</th></tr>' +
-                '<tr><td>1</td><td>Alice</td><td>30</td></tr>' +
-                '<tr><td>2</td><td>Bob</td><td>25</td></tr></table>', 'table');
-        }
-
-        eventManager.handleEvent(10, '{"success":1}');
-        this.updateStatus('Ready');
     }
 
     /**
@@ -301,80 +350,19 @@ class SQLiteVisApp {
                 }
             } else {
                 this.showOutput('✅ SQL executed successfully', 'success');
-                console.log('SQL executed:', sql);
+                this.debugLog('SQL executed:', sql);
 
-                // Real events will be emitted by instrumented SQLite
+                // Real events are automatically emitted by instrumented SQLite
+                // through the window.sqliteVisEventHandler callback
             }
 
             this.sqliteModule._free(errorPtrPtr);
-            eventManager.handleEvent(10, '{"success":' + (result === 0 ? '1' : '0') + '}');
             this.updateStatus('Ready');
         } catch (error) {
             console.error('Error executing SQL:', error);
             this.showOutput('Error: ' + error.message, 'error');
             this.updateStatus('Error');
         }
-    }
-
-    /**
-     * Simulate B-tree events based on SQL operations
-     * This provides visualization until full SQLite instrumentation is added
-     */
-    simulateEvents(sql) {
-        const sqlUpper = sql.toUpperCase();
-
-        // CREATE TABLE - allocate a new page
-        if (sqlUpper.includes('CREATE TABLE')) {
-            const tableName = sql.match(/CREATE\s+TABLE\s+(\w+)/i)?.[1] || 'unknown';
-            setTimeout(() => {
-                eventManager.handleEvent(6, '{"page":' + (this.visualizer.nodes.size + 1) + ',"type":1}');
-            }, 100);
-        }
-
-        // INSERT - add cells to B-tree
-        if (sqlUpper.includes('INSERT INTO')) {
-            const matches = sql.match(/INSERT INTO/gi);
-            const count = matches ? matches.length : 1;
-
-            for (let i = 0; i < count; i++) {
-                setTimeout(() => {
-                    const pageNum = this.visualizer.nodes.size || 1;
-                    const cellIdx = Array.from(this.visualizer.nodes.values())
-                        .find(n => n.page === pageNum)?.cells.length || 0;
-
-                    eventManager.handleEvent(2, JSON.stringify({
-                        page: pageNum,
-                        cell: cellIdx,
-                        keyLen: 16
-                    }));
-                }, 200 * (i + 1));
-            }
-        }
-
-        // DELETE - remove cells
-        if (sqlUpper.includes('DELETE FROM')) {
-            setTimeout(() => {
-                const pageNum = this.visualizer.nodes.size || 1;
-                eventManager.handleEvent(3, JSON.stringify({
-                    page: pageNum,
-                    cell: 0
-                }));
-            }, 100);
-        }
-
-        // SELECT - just emit completion
-        if (sqlUpper.includes('SELECT')) {
-            setTimeout(() => {
-                eventManager.handleEvent(13, '{"resultCode":0}');
-            }, 100);
-        }
-    }
-
-    /**
-     * Step through SQL execution
-     */
-    stepThroughSQL() {
-        alert('Step-through mode coming soon!');
     }
 
     /**

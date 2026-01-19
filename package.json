@@ -6,7 +6,13 @@
   "scripts": {
     "serve": "python3 -m http.server 8000 --directory .",
     "build": "make build-wasm",
-    "clean": "make clean"
+    "clean": "make clean",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "install:playwright": "playwright install"
   },
   "keywords": [
     "sqlite",
@@ -17,6 +23,7 @@
   ],
   "author": "",
   "license": "MIT",
-  "devDependencies": {},
-  "dependencies": {}
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  }
 }
