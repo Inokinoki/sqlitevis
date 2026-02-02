@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SQLite B-Tree Visualization</title>
+
+    <!-- Performance: Preload critical resources -->
+    <link rel="preload" href="css/style.css" as="style">
+    <link rel="preload" href="build/sqlite3.wasm" as="fetch" crossorigin>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -103,10 +107,11 @@ SELECT * FROM users;</textarea>
         <p>Loading SQLite WebAssembly module...</p>
     </div>
 
-    <!-- Scripts -->
-    <script src="../../build/sqlite3.js"></script>
-    <script src="js/events.js"></script>
-    <script src="js/visualizer.js"></script>
-    <script src="js/main.js"></script>
+    <!-- Scripts - Optimized Loading with async for non-critical scripts -->
+    <script src="build/sqlite3.js" defer></script>
+    <script src="js/performance-monitor.js" defer></script>
+    <script src="js/events.js" defer></script>
+    <script src="js/visualizer.js" defer></script>
+    <script src="js/main.js" defer></script>
 </body>
 </html>

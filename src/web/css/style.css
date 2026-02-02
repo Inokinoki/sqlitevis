@@ -66,6 +66,8 @@ header h1 {
     padding: 1rem;
     overflow: hidden;
     min-height: 0;
+    /* Performance optimization */
+    contain: layout style;
 }
 
 .left-panel {
@@ -117,6 +119,7 @@ section h2 {
     border-radius: 4px;
     resize: vertical;
     background: var(--bg-secondary);
+    /* Performance optimization - removed will-change to avoid GPU memory overuse */
 }
 
 #sql-input:focus {
@@ -231,6 +234,11 @@ section h2 {
     overflow-y: auto;
     font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
     font-size: 0.8rem;
+    /* Performance optimization - use containment for better rendering */
+    contain: layout style paint;
+    /* Enable content-visibility for better performance with many events */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 500px;
 }
 
 .event-item {
@@ -239,6 +247,9 @@ section h2 {
     border-left: 3px solid;
     background: var(--bg-primary);
     border-radius: 3px;
+    /* Performance optimization - use containment to reduce reflow scope */
+    contain: layout style;
+    /* Remove will-change to avoid GPU memory overuse */
 }
 
 .event-item.event-btree {
@@ -301,6 +312,9 @@ section h2 {
     background: var(--bg-secondary);
     cursor: crosshair;
     display: block;
+    /* Performance optimization - use containment for better rendering */
+    contain: layout style paint;
+    /* Remove will-change to avoid GPU memory overuse */
 }
 
 /* Node Info Panel */

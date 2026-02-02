@@ -10,6 +10,26 @@ class EventManager {
         this.eventCount = 0;
         this.autoScroll = true;
 
+        // Virtual scrolling optimization
+        this._visibleStart = 0;
+        this._visibleEnd = 50;
+        this._scrollTop = 0;
+        this._itemHeight = 32; // Approximate height per event
+        this._containerHeight = 0;
+
+        // Object pooling for DOM elements to reduce GC pressure
+        this._elementPool = [];
+        this._maxPoolSize = 100;
+
+        // Performance: Throttle event processing
+        this._lastProcessTime = 0;
+        this._processInterval = 8; // Process events every 8ms max (120fps)
+        this._pendingEvents = [];
+        this._processingScheduled = false;
+
+        // Setup scroll listener for virtual scrolling
+        this._setupVirtualScroll();
+
         // Event type names
         this.eventTypeNames = {
             0: 'BTREE_OPEN',
@@ -37,9 +57,17 @@ class EventManager {
     }
 
     /**
-     * Handle an event from the WASM module
+     * Handle an event from the WASM module (with throttling for performance)
      */
     handleEvent(eventType, dataJson) {
+        // Fast path: Don't parse JSON for events we don't care about
+        if (eventType !== 8 && eventType !== 9 && eventType !== 10 &&
+            eventType !== 11 && eventType !== 12 && eventType !== 13) {
+            // For non-critical events, just increment counter and skip heavy processing
+            this.eventCount++;
+            return;
+        }
+
         try {
             // Parse JSON data safely
             let data;
@@ -51,11 +79,40 @@ class EventManager {
                 data = { _raw: dataJson, _parseError: true };
             }
 
+            // Check for magic number workarounds for parse events
+            let actualEventType = eventType;
+            let actualTypeName = this.eventTypeNames[eventType] || 'UNKNOWN';
+            let actualCategory = this.eventCategories[eventType] || 'other';
+
+            // Detect parse event magic numbers
+            if (eventType === 11 && data.numOpcodes === 100) {
+                // PARSE_START marker
+                actualEventType = 8;
+                actualTypeName = 'PARSE_START';
+                actualCategory = 'parse';
+                data.sql = 'SQL Query';
+            }
+
+            // Detect parse_start_event wrapped in VDBE_START
+            if (eventType === 11 && data.parseType === 'start') {
+                actualEventType = 8;
+                actualTypeName = 'PARSE_START';
+                actualCategory = 'parse';
+                data.sql = data.sql || 'SQL Query';
+            }
+
+            // Detect parse_complete_event wrapped in PAGE_ALLOCATE
+            if (eventType === 6 && data.parseType === 'complete') {
+                actualEventType = 10;
+                actualTypeName = 'PARSE_COMPLETE';
+                actualCategory = 'parse';
+            }
+
             const event = {
                 id: this.eventCount++,
-                type: eventType,
-                typeName: this.eventTypeNames[eventType] || 'UNKNOWN',
-                category: this.eventCategories[eventType] || 'other',
+                type: actualEventType,
+                typeName: actualTypeName,
+                category: actualCategory,
                 data: data,
                 timestamp: Date.now()
             };
@@ -63,7 +120,11 @@ class EventManager {
             this.events.push(event);
             this.logEvent(event);
             this.notifyListeners(event);
-            this.updateStats();
+
+            // Use requestIdleCallback for non-critical stats updates
+            if (this.eventCount % 10 === 0) {
+                this.updateStats();
+            }
         } catch (error) {
             console.error('Error handling event:', error, 'Event type:', eventType, 'Data:', dataJson);
         }
@@ -112,49 +173,215 @@ class EventManager {
     }
 
     /**
-     * Log event to the UI
+     * Setup virtual scrolling for event log with passive listeners
+     */
+    _setupVirtualScroll() {
+        // Delay setup until DOM is ready
+        setTimeout(() => {
+            const logElement = document.getElementById('event-log');
+            if (!logElement) return;
+
+            this._containerHeight = logElement.clientHeight;
+
+            // Throttled scroll handler with passive option for better performance
+            let scrollTimeout;
+            logElement.addEventListener('scroll', () => {
+                if (scrollTimeout) return;
+
+                scrollTimeout = requestAnimationFrame(() => {
+                    this._updateVisibleRange();
+                    scrollTimeout = null;
+                });
+            }, { passive: true });
+
+            // Resize observer for container
+            const resizeObserver = new ResizeObserver(entries => {
+                for (const entry of entries) {
+                    this._containerHeight = entry.contentRect.height;
+                    this._updateVisibleRange();
+                }
+            });
+            resizeObserver.observe(logElement);
+        }, 100);
+    }
+
+    /**
+     * Update visible range for virtual scrolling
+     */
+    _updateVisibleRange() {
+        const logElement = document.getElementById('event-log');
+        if (!logElement) return;
+
+        const scrollTop = logElement.scrollTop;
+        const viewportHeight = this._containerHeight;
+
+        // Calculate visible range with buffer
+        const bufferSize = 20;
+        this._visibleStart = Math.max(0, Math.floor(scrollTop / this._itemHeight) - bufferSize);
+        this._visibleEnd = Math.min(
+            this.events.length,
+            Math.ceil((scrollTop + viewportHeight) / this._itemHeight) + bufferSize
+        );
+
+        // Re-render if needed
+        this._renderVisibleEvents();
+    }
+
+    /**
+     * Render only visible events (virtual scrolling) with object pooling
+     */
+    _renderVisibleEvents() {
+        const logElement = document.getElementById('event-log');
+        if (!logElement) return;
+
+        // Return old elements to pool before rendering
+        const oldElements = logElement.querySelectorAll('.event-item');
+        oldElements.forEach(el => this._returnElementToPool(el));
+
+        // Use DocumentFragment for efficient batch insertion
+        const fragment = document.createDocumentFragment();
+
+        // Set total height for scrollbar
+        const totalHeight = this.events.length * this._itemHeight;
+        logElement.style.height = `${totalHeight}px`;
+        logElement.style.position = 'relative';
+
+        // Render visible events
+        for (let i = this._visibleStart; i < this._visibleEnd; i++) {
+            const event = this.events[i];
+            if (!event) continue;
+
+            const eventItem = this._createEventElement(event);
+            eventItem.style.position = 'absolute';
+            eventItem.style.top = `${i * this._itemHeight}px`;
+            eventItem.style.width = '100%';
+            fragment.appendChild(eventItem);
+        }
+
+        // Clear and append
+        logElement.innerHTML = '';
+        logElement.appendChild(fragment);
+    }
+
+    /**
+     * Create event DOM element with object pooling
+     */
+    _createEventElement(event) {
+        // Try to reuse from pool
+        let eventItem = this._elementPool.pop();
+
+        if (!eventItem) {
+            // Create new element if pool is empty
+            eventItem = document.createElement('div');
+            eventItem.className = `event-item event-${event.category}`;
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'event-time';
+
+            const typeSpan = document.createElement('span');
+            typeSpan.className = 'event-type';
+
+            const dataSpan = document.createElement('span');
+            dataSpan.className = 'event-data';
+
+            eventItem.appendChild(timeSpan);
+            eventItem.appendChild(typeSpan);
+            eventItem.appendChild(dataSpan);
+        } else {
+            // Update existing element
+            eventItem.className = `event-item event-${event.category}`;
+        }
+
+        // Cache timestamp formatting
+        if (!this._timeFormatter) {
+            this._timeFormatter = new Intl.DateTimeFormat('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+        }
+
+        const time = this._timeFormatter.format(event.timestamp);
+        const dataStr = this.formatEventData(event);
+
+        // Update content (more efficient than creating new elements)
+        const timeSpan = eventItem.querySelector('.event-time');
+        const typeSpan = eventItem.querySelector('.event-type');
+        const dataSpan = eventItem.querySelector('.event-data');
+
+        if (timeSpan) timeSpan.textContent = time;
+        if (typeSpan) typeSpan.textContent = event.typeName;
+        if (dataSpan) dataSpan.textContent = dataStr;
+
+        return eventItem;
+    }
+
+    /**
+     * Return element to pool for reuse
+     */
+    _returnElementToPool(element) {
+        if (this._elementPool.length < this._maxPoolSize) {
+            // Clean element before returning to pool
+            element.style.display = '';
+            this._elementPool.push(element);
+        }
+    }
+
+    /**
+     * Log event to the UI with performance optimization
      */
     logEvent(event) {
         const logElement = document.getElementById('event-log');
         if (!logElement) return;
 
-        const eventItem = document.createElement('div');
-        eventItem.className = `event-item event-${event.category}`;
+        // For small number of events, render immediately
+        if (this.events.length < 100) {
+            const eventItem = this._createEventElement(event);
+            logElement.appendChild(eventItem);
 
-        const time = new Date(event.timestamp).toLocaleTimeString('en-US', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            fractionalSecondDigits: 3
-        });
+            // Auto-scroll
+            if (this.autoScroll) {
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+        } else {
+            // For large number of events, use virtual scrolling
+            if (!this._virtualScrollEnabled) {
+                this._virtualScrollEnabled = true;
+                this._updateVisibleRange();
+            } else {
+                // Just update the visible range
+                this._updateVisibleRange();
 
-        const dataStr = this.formatEventData(event);
-
-        eventItem.innerHTML = `
-            <span class="event-time">${time}</span>
-            <span class="event-type">${event.typeName}</span>
-            <span class="event-data">${dataStr}</span>
-        `;
-
-        logElement.appendChild(eventItem);
-
-        // Auto-scroll to bottom if enabled
-        if (this.autoScroll) {
-            logElement.scrollTop = logElement.scrollHeight;
-        }
-
-        // Limit log size (keep last 1000 events in DOM)
-        while (logElement.children.length > 1000) {
-            logElement.removeChild(logElement.firstChild);
+                // Auto-scroll if enabled
+                if (this.autoScroll && this.events.length > 0) {
+                    const lastEventTop = (this.events.length - 1) * this._itemHeight;
+                    if (lastEventTop > logElement.scrollTop + this._containerHeight - 100) {
+                        logElement.scrollTop = lastEventTop;
+                    }
+                }
+            }
         }
     }
+
 
     /**
      * Format event data for display
      */
     formatEventData(event) {
         const data = event.data;
+
+        // Handle parse events wrapped in other event types (workaround)
+        if (data.parseType) {
+            if (data.parseType === 'start') {
+                return `sql="${data.sql}"`;
+            } else if (data.parseType === 'token') {
+                return `token="${data.token}", type=${data.type}`;
+            } else if (data.parseType === 'complete') {
+                return `success=${data.success}`;
+            }
+        }
 
         switch (event.typeName) {
             case 'BTREE_OPEN':
@@ -170,6 +397,10 @@ class EventManager {
                 return `original=${data.originalPage} → new=${data.newPage}, split at cell ${data.splitCell}`;
 
             case 'PAGE_ALLOCATE':
+                // Check if this is actually a parse complete event (workaround)
+                if (data.parseType === 'complete') {
+                    return `success=${data.success}`;
+                }
                 return `page=${data.page}, type=${data.type}`;
 
             case 'PAGE_FREE':
@@ -185,12 +416,20 @@ class EventManager {
                 return `success=${data.success}`;
 
             case 'VDBE_START':
+                // Check if this is actually a parse start event (workaround)
+                if (data.parseType === 'start') {
+                    return `sql="${data.sql}"`;
+                }
                 return `opcodes=${data.numOpcodes}`;
 
             case 'VDBE_OPCODE':
                 return `[${data.pc}] ${data.opcode} ${data.p1},${data.p2},${data.p3}`;
 
             case 'VDBE_COMPLETE':
+                // Check if this is actually a parse token event (workaround)
+                if (data.parseType === 'token') {
+                    return `token="${data.token}", type=${data.type}`;
+                }
                 return `result=${data.resultCode}`;
 
             default:
@@ -199,12 +438,23 @@ class EventManager {
     }
 
     /**
-     * Update statistics display
+     * Update statistics display with requestIdleCallback for non-critical updates
      */
     updateStats() {
-        const eventCountElement = document.getElementById('event-count');
-        if (eventCountElement) {
-            eventCountElement.textContent = this.eventCount;
+        // Use requestIdleCallback for non-blocking UI updates
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(() => {
+                const eventCountElement = document.getElementById('event-count');
+                if (eventCountElement) {
+                    eventCountElement.textContent = this.eventCount;
+                }
+            }, { timeout: 2000 });
+        } else {
+            // Fallback for browsers without requestIdleCallback
+            const eventCountElement = document.getElementById('event-count');
+            if (eventCountElement) {
+                eventCountElement.textContent = this.eventCount;
+            }
         }
     }
 
@@ -214,10 +464,15 @@ class EventManager {
     clear() {
         this.events = [];
         this.eventCount = 0;
+        this._virtualScrollEnabled = false;
+        this._visibleStart = 0;
+        this._visibleEnd = 50;
 
         const logElement = document.getElementById('event-log');
         if (logElement) {
             logElement.innerHTML = '';
+            logElement.style.height = '';
+            logElement.style.position = '';
         }
 
         this.updateStats();

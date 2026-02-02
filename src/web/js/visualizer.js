@@ -35,6 +35,31 @@ class BTreeVisualizer {
         // Store ResizeObserver for cleanup
         this.resizeObserver = null;
 
+        // Performance optimization: throttle canvas redraws
+        this._needsRedraw = false;
+        this._scheduledDraw = false;
+        this._lastDrawState = null;
+
+        // Performance optimization: cache canvas dimensions
+        this._canvasWidth = 0;
+        this._canvasHeight = 0;
+
+        // Performance optimization: throttle VDBE rendering
+        this._vdbeDrawPending = false;
+        this._vdbeDrawScheduled = false;
+
+        // Performance optimization: throttle parse tree rendering
+        this._parseDrawPending = false;
+        this._parseDrawScheduled = false;
+
+        // Performance optimization: Cache expensive calculations
+        this._layoutCache = new Map();
+        this._maxCacheSize = 100;
+
+        // Performance optimization: Skip frames if rendering is too slow
+        this._frameTime = 0;
+        this._targetFrameTime = 16; // 60fps target
+
         // SQLite token type mapping (numeric -> name)
         this.tokenTypeNames = {
             1: 'TK_ILLEGAL',
@@ -187,11 +212,40 @@ class BTreeVisualizer {
 
         this.setupCanvas();
         this.bindEvents();
+        this.setupIntersectionObserver();
         this.startAnimationLoop();
     }
 
     /**
-     * Setup canvas size and scaling
+     * Setup Intersection Observer for lazy rendering
+     */
+    setupIntersectionObserver() {
+        // Only render when canvas is visible
+        if ('IntersectionObserver' in window) {
+            this._isVisible = true;
+            this.intersectionObserver = new IntersectionObserver(
+                (entries) => {
+                    entries.forEach(entry => {
+                        this._isVisible = entry.isIntersecting;
+
+                        // Resume/pause animation loop based on visibility
+                        if (this._isVisible && !this._animationRunning) {
+                            this.startAnimationLoop();
+                        } else if (!this._isVisible) {
+                            this._animationRunning = false;
+                        }
+                    });
+                },
+                {
+                    threshold: 0.1  // Trigger when 10% visible
+                }
+            );
+            this.intersectionObserver.observe(this.canvas);
+        }
+    }
+
+    /**
+     * Setup canvas size and scaling with debounced resize
      */
     setupCanvas() {
         const resize = () => {
@@ -217,19 +271,29 @@ class BTreeVisualizer {
             this.ctx.scale(dpr, dpr);
 
             // Redraw after resize
-            this.draw();
+            this.drawImmediate();
+        };
+
+        // Debounce function to limit resize calls
+        const debounce = (fn, delay) => {
+            let timeoutId;
+            return (...args) => {
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => fn.apply(this, args), delay);
+            };
         };
 
         // Initial sizing
         resize();
 
-        // Watch for window resize
-        window.addEventListener('resize', resize);
+        // Debounced resize handler (150ms delay)
+        const debouncedResize = debounce(resize, 150);
 
-        // Watch for container size changes
-        this.resizeObserver = new ResizeObserver(() => {
-            resize();
-        });
+        // Watch for window resize
+        window.addEventListener('resize', debouncedResize);
+
+        // Watch for container size changes with debouncing
+        this.resizeObserver = new ResizeObserver(debouncedResize);
         this.resizeObserver.observe(this.canvas.parentElement);
     }
 
@@ -241,26 +305,56 @@ class BTreeVisualizer {
             this.resizeObserver.disconnect();
             this.resizeObserver = null;
         }
+        if (this.intersectionObserver) {
+            this.intersectionObserver.disconnect();
+            this.intersectionObserver = null;
+        }
+        this._animationRunning = false;
     }
 
     /**
-     * Bind mouse events for interaction
+     * Bind mouse events for interaction with throttled updates and passive listeners
      */
     bindEvents() {
+        // Throttled node info update with debouncing
+        let lastNode = null;
+        let updateScheduled = false;
+        let updateTimeout = null;
+
+        // Use passive listener for better scroll/touch performance
         this.canvas.addEventListener('mousemove', (e) => {
             const rect = this.canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
             const node = this.getNodeAtPosition(x, y);
-            if (node) {
-                this.showNodeInfo(node);
-                this.canvas.style.cursor = 'pointer';
-            } else {
-                this.hideNodeInfo();
-                this.canvas.style.cursor = 'crosshair';
+
+            // Only update if node changed
+            if (node !== lastNode) {
+                lastNode = node;
+
+                if (node) {
+                    this.canvas.style.cursor = 'pointer';
+
+                    // Debounce DOM updates to prevent excessive reflows
+                    if (updateTimeout) {
+                        clearTimeout(updateTimeout);
+                    }
+                    updateTimeout = setTimeout(() => {
+                        if (!updateScheduled) {
+                            updateScheduled = true;
+                            requestAnimationFrame(() => {
+                                this.showNodeInfo(node);
+                                updateScheduled = false;
+                            });
+                        }
+                    }, 50); // 50ms debounce
+                } else {
+                    this.hideNodeInfo();
+                    this.canvas.style.cursor = 'crosshair';
+                }
             }
-        });
+        }, { passive: true });
 
         this.canvas.addEventListener('click', (e) => {
             const rect = this.canvas.getBoundingClientRect();
@@ -388,10 +482,25 @@ class BTreeVisualizer {
     }
 
     /**
-     * Calculate layout positions for all nodes
+     * Calculate layout positions for all nodes (with caching)
      */
     layout() {
         if (this.nodes.size === 0) return;
+
+        // Check cache
+        const cacheKey = Array.from(this.nodes.keys()).sort().join('-');
+        if (this._layoutCache.has(cacheKey)) {
+            const cached = this._layoutCache.get(cacheKey);
+            // Apply cached positions
+            cached.forEach((pos, pageNum) => {
+                const node = this.nodes.get(pageNum);
+                if (node) {
+                    node.x = pos.x;
+                    node.y = pos.y;
+                }
+            });
+            return;
+        }
 
         const root = this.nodes.get(this.rootPage);
         if (!root) return;
@@ -399,6 +508,8 @@ class BTreeVisualizer {
         // Simple tree layout algorithm
         const levels = this.buildLevels(root);
         let currentY = 50;
+
+        const layoutMap = new Map();
 
         levels.forEach((levelNodes, level) => {
             const totalWidth = levelNodes.length * (this.nodeWidth + this.horizontalSpacing);
@@ -408,11 +519,20 @@ class BTreeVisualizer {
             levelNodes.forEach(node => {
                 node.x = currentX;
                 node.y = currentY;
+                layoutMap.set(node.page, { x: currentX, y: currentY });
                 currentX += this.nodeWidth + this.horizontalSpacing;
             });
 
             currentY += this.levelHeight;
         });
+
+        // Cache the layout
+        if (this._layoutCache.size >= this._maxCacheSize) {
+            // Clear oldest entry
+            const firstKey = this._layoutCache.keys().next().value;
+            this._layoutCache.delete(firstKey);
+        }
+        this._layoutCache.set(cacheKey, layoutMap);
     }
 
     /**
@@ -442,15 +562,70 @@ class BTreeVisualizer {
     }
 
     /**
-     * Main draw function
+     * Main draw function with requestAnimationFrame batching and state checking
      */
     draw() {
+        // Create state hash to check if redraw is needed
+        const currentState = this._createStateHash();
+        if (currentState === this._lastDrawState && !this._needsRedraw) {
+            return; // Skip redraw if nothing changed
+        }
+        this._lastDrawState = currentState;
+
+        // Schedule redraw instead of immediate draw
+        if (this._scheduledDraw) {
+            this._needsRedraw = true;
+            return;
+        }
+
+        this._scheduledDraw = true;
+        this._needsRedraw = false;
+
+        requestAnimationFrame(() => {
+            this._performDraw();
+
+            // If another draw was requested during this render, schedule it
+            if (this._needsRedraw) {
+                this._needsRedraw = false;
+                this._lastDrawState = this._createStateHash();
+                requestAnimationFrame(() => this._performDraw());
+            } else {
+                this._scheduledDraw = false;
+            }
+        });
+    }
+
+    /**
+     * Create a hash of current visual state to detect changes
+     */
+    _createStateHash() {
+        if (this.viewMode === 'btree') {
+            return `btree-${this.nodes.size}-${Array.from(this.nodes.keys()).join('-')}-${Array.from(this.highlightedNodes).join('-')}`;
+        } else if (this.viewMode === 'parse') {
+            return `parse-${this.parseTokens.length}-${this.currentSQL}`;
+        } else if (this.viewMode === 'vdbe') {
+            return `vdbe-${this.vdbeOpcodes.length}-${this.vdbeCurrentPc}`;
+        }
+        return this.viewMode;
+    }
+
+    /**
+     * Internal draw implementation
+     */
+    _performDraw() {
         const rect = this.canvas.getBoundingClientRect();
-        this.ctx.clearRect(0, 0, rect.width, rect.height);
+
+        // Cache dimensions to avoid repeated getBoundingClientRect calls
+        if (this._canvasWidth !== rect.width || this._canvasHeight !== rect.height) {
+            this._canvasWidth = rect.width;
+            this._canvasHeight = rect.height;
+        }
+
+        this.ctx.clearRect(0, 0, this._canvasWidth, this._canvasHeight);
 
         // Draw background
         this.ctx.fillStyle = this.colors.background;
-        this.ctx.fillRect(0, 0, rect.width, rect.height);
+        this.ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
 
         // Draw connections first
         this.nodes.forEach(node => {
@@ -462,8 +637,26 @@ class BTreeVisualizer {
             this.drawNode(node);
         });
 
-        // Update page count
-        document.getElementById('page-count').textContent = this.nodes.size;
+        // Update page count (throttled)
+        if (!this._pageCountThrottled) {
+            this._pageCountThrottled = true;
+            requestAnimationFrame(() => {
+                const pageCountEl = document.getElementById('page-count');
+                if (pageCountEl) {
+                    pageCountEl.textContent = this.nodes.size;
+                }
+                this._pageCountThrottled = false;
+            });
+        }
+    }
+
+    /**
+     * Immediate draw (skip batching for critical updates)
+     */
+    drawImmediate() {
+        this._scheduledDraw = false;
+        this._needsRedraw = false;
+        this._performDraw();
     }
 
     /**
@@ -645,10 +838,19 @@ class BTreeVisualizer {
     }
 
     /**
-     * Animation loop
+     * Animation loop with visibility check
      */
     startAnimationLoop() {
+        if (this._animationRunning) return;
+
+        this._animationRunning = true;
         const animate = () => {
+            // Stop if not visible (IntersectionObserver will restart)
+            if (!this._isVisible) {
+                this._animationRunning = false;
+                return;
+            }
+
             // Process animations
             this.animations = this.animations.filter(anim => {
                 anim.progress += 0.016 * this.animationSpeed; // ~60fps
@@ -663,7 +865,9 @@ class BTreeVisualizer {
                 this.draw();
             }
 
-            requestAnimationFrame(animate);
+            if (this._animationRunning) {
+                requestAnimationFrame(animate);
+            }
         };
 
         requestAnimationFrame(animate);
@@ -674,6 +878,10 @@ class BTreeVisualizer {
      */
     clear() {
         this.nodes.clear();
+        this.parseTokens = [];
+        this.currentSQL = '';
+        this.vdbeOpcodes = [];
+        this.vdbeCurrentPc = -1;
         this.animations = [];
         this.highlightedNodes.clear();
         this.draw();
@@ -724,7 +932,7 @@ class BTreeVisualizer {
     }
 
     /**
-     * Show parse token
+     * Show parse token (with batched rendering for performance)
      */
     showParseToken(token, type) {
         if (this.viewMode !== 'parse') return;
@@ -751,7 +959,19 @@ class BTreeVisualizer {
 
         // Add token to list
         this.parseTokens.push({ token, type: typeName });
-        this.drawParseTree(false);  // false = not waiting, has SQL
+
+        // Batch rendering for performance - only draw periodically
+        this._parseDrawPending = true;
+        if (!this._parseDrawScheduled) {
+            this._parseDrawScheduled = true;
+            requestAnimationFrame(() => {
+                if (this._parseDrawPending) {
+                    this.drawParseTree(false);
+                    this._parseDrawPending = false;
+                }
+                this._parseDrawScheduled = false;
+            });
+        }
     }
 
     /**
@@ -922,7 +1142,7 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw parse tokens list
+     * Draw parse tokens list with lazy rendering (only visible tokens)
      */
     drawParseTokens() {
         const rect = this.canvas.getBoundingClientRect();
@@ -935,14 +1155,25 @@ class BTreeVisualizer {
         this.ctx.textAlign = 'left';
         this.ctx.fillText(`Tokens (${this.parseTokens.length}):`, 20, startY);
 
-        this.parseTokens.forEach((token, i) => {
+        // Only render visible tokens to improve performance
+        const availableHeight = this._canvasHeight - startY - 60;
+        const maxVisibleTokens = Math.floor(availableHeight / (tokenHeight + 5));
+        const tokensToRender = Math.min(this.parseTokens.length, maxVisibleTokens);
+
+        // Use a single fillStyle for all backgrounds of the same type
+        const keywordColor = this.colors.nodeInternal;
+        const identifierColor = this.colors.nodeLeaf;
+        const defaultColor = this.colors.background;
+
+        for (let i = 0; i < tokensToRender; i++) {
+            const token = this.parseTokens[i];
             const x = 20;
             const y = startY + 30 + i * (tokenHeight + 5);
 
             // Token background
-            const color = token.type === 'keyword' ? this.colors.nodeInternal :
-                         token.type === 'identifier' ? this.colors.nodeLeaf :
-                         this.colors.background;
+            const color = token.type === 'keyword' ? keywordColor :
+                         token.type === 'identifier' ? identifierColor :
+                         defaultColor;
 
             this.ctx.fillStyle = color;
             this.ctx.fillRect(x, y, tokenWidth, tokenHeight);
@@ -957,7 +1188,14 @@ class BTreeVisualizer {
             this.ctx.textAlign = 'left';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText(`${token.token} (${token.type})`, x + 10, y + tokenHeight / 2);
-        });
+        }
+
+        // Show indicator if there are more tokens
+        if (this.parseTokens.length > tokensToRender) {
+            this.ctx.fillStyle = this.colors.textSecondary;
+            this.ctx.font = '10px sans-serif';
+            this.ctx.fillText(`... and ${this.parseTokens.length - tokensToRender} more tokens`, 20, startY + 30 + tokensToRender * (tokenHeight + 5));
+        }
     }
 
     /**
@@ -972,7 +1210,7 @@ class BTreeVisualizer {
     }
 
     /**
-     * Show VDBE opcode execution
+     * Show VDBE opcode execution (with batched rendering for performance)
      */
     showVdbeOpcode(pc, opcode, p1, p2, p3) {
         if (this.viewMode !== 'vdbe') return;
@@ -997,7 +1235,19 @@ class BTreeVisualizer {
             p3: p3 !== undefined ? p3 : 0
         };
         this.vdbeCurrentPc = pc;
-        this.drawVdbeList('Executing', `Opcode ${pc + 1} of ${this.vdbeOpcodes.length}`);
+
+        // Batch rendering for performance - only draw periodically
+        this._vdbeDrawPending = true;
+        if (!this._vdbeDrawScheduled) {
+            this._vdbeDrawScheduled = true;
+            requestAnimationFrame(() => {
+                if (this._vdbeDrawPending) {
+                    this.drawVdbeList('Executing', `Opcode ${this.vdbeCurrentPc + 1} of ${this.vdbeOpcodes.length}`);
+                    this._vdbeDrawPending = false;
+                }
+                this._vdbeDrawScheduled = false;
+            });
+        }
     }
 
     /**
@@ -1010,33 +1260,48 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw VDBE opcode list with current execution highlighted
+     * Draw VDBE opcode list with current execution highlighted (optimized)
      */
     drawVdbeList(state, info) {
         const rect = this.canvas.getBoundingClientRect();
         this.ctx.fillStyle = this.colors.background;
-        this.ctx.fillRect(0, 0, rect.width, rect.height);
+        this.ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
 
         // Draw title and state
         this.ctx.fillStyle = this.colors.text;
         this.ctx.font = 'bold 16px sans-serif';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('VDBE Program Execution', rect.width / 2, 30);
+        this.ctx.fillText('VDBE Program Execution', this._canvasWidth / 2, 30);
         this.ctx.font = '14px sans-serif';
-        this.ctx.fillText(`${state} - ${info}`, rect.width / 2, 55);
+        this.ctx.fillText(`${state} - ${info}`, this._canvasWidth / 2, 55);
 
-        // Draw all opcodes
+        // Only render visible opcodes to improve performance
         const startY = 90;
         const lineHeight = 28;
+        const availableHeight = this._canvasHeight - startY - 40;
+        const maxVisibleOpcodes = Math.floor(availableHeight / lineHeight);
 
-        this.vdbeOpcodes.forEach((op, index) => {
-            const y = startY + index * lineHeight;
-            const isCurrent = index === this.vdbeCurrentPc;
+        // Calculate scroll position (center on current instruction if possible)
+        let scrollOffset = 0;
+        if (this.vdbeCurrentPc >= maxVisibleOpcodes) {
+            scrollOffset = this.vdbeCurrentPc - Math.floor(maxVisibleOpcodes / 2);
+        }
+
+        const startIndex = Math.max(0, scrollOffset);
+        const endIndex = Math.min(this.vdbeOpcodes.length, startIndex + maxVisibleOpcodes);
+
+        // Draw visible opcodes
+        for (let i = startIndex; i < endIndex; i++) {
+            const op = this.vdbeOpcodes[i];
+            if (!op) continue;
+
+            const y = startY + (i - startIndex) * lineHeight;
+            const isCurrent = i === this.vdbeCurrentPc;
 
             // Highlight current instruction
             if (isCurrent) {
                 this.ctx.fillStyle = this.colors.nodeHighlight;
-                this.ctx.fillRect(30, y - 5, Math.min(500, rect.width - 60), lineHeight - 2);
+                this.ctx.fillRect(30, y - 5, Math.min(500, this._canvasWidth - 60), lineHeight - 2);
             }
 
             // Draw opcode
@@ -1048,16 +1313,14 @@ class BTreeVisualizer {
                 40,
                 y + 12
             );
-        });
+        }
 
-        // Show instruction count
+        // Show instruction count and scroll indicator
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
         this.ctx.textAlign = 'left';
-        this.ctx.fillText(
-            `Total opcodes: ${this.vdbeOpcodes.length}`,
-            30,
-            rect.height - 20
-        );
+        const countText = `Total opcodes: ${this.vdbeOpcodes.length}`;
+        const scrollText = endIndex < this.vdbeOpcodes.length ? ` (showing ${startIndex + 1}-${endIndex})` : '';
+        this.ctx.fillText(countText + scrollText, 30, this._canvasHeight - 20);
     }
 }
