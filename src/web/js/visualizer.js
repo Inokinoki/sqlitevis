@@ -758,30 +758,94 @@ class BTreeVisualizer {
     }
 
     /**
-     * Show node information panel
+     * Show node information panel (optimized - caches DOM elements)
      */
     showNodeInfo(node) {
         const infoPanel = document.getElementById('node-info');
-        const detailsDiv = document.getElementById('node-details');
-
-        const cellsHtml = node.cells.map(c =>
-            `<div>Cell ${c.idx}: ${c.key} (${c.keyLen} bytes)</div>`
-        ).join('');
-
-        detailsDiv.innerHTML = `
-            <dl>
-                <dt>Page Number:</dt><dd>${node.page}</dd>
-                <dt>Type:</dt><dd>${node.type === 1 ? 'Leaf' : 'Interior'}</dd>
-                <dt>Cells:</dt><dd>${node.cells.length}</dd>
-                <dt>Children:</dt><dd>${node.children.length}</dd>
-            </dl>
-            <div style="margin-top: 10px;">
-                <strong>Cells:</strong>
-                ${cellsHtml || '<em>No cells</em>'}
-            </div>
-        `;
+        if (!infoPanel) return;
 
         infoPanel.classList.remove('hidden');
+
+        const detailsDiv = document.getElementById('node-details');
+        if (!detailsDiv) return;
+
+        // Use textContent for better performance (avoid innerHTML)
+        // Create structure once, then update
+        if (!this._nodeInfoCache) {
+            this._nodeInfoCache = {
+                dl: document.createElement('dl'),
+                dtPage: document.createElement('dt'),
+                ddPage: document.createElement('dd'),
+                dtType: document.createElement('dt'),
+                ddType: document.createElement('dd'),
+                dtCells: document.createElement('dt'),
+                ddCells: document.createElement('dd'),
+                dtChildren: document.createElement('dt'),
+                ddChildren: document.createElement('dd'),
+                cellDiv: document.createElement('div'),
+                cellTitle: document.createElement('strong')
+            };
+
+            // Set static labels
+            this._nodeInfoCache.dtPage.textContent = 'Page Number:';
+            this._nodeInfoCache.dtType.textContent = 'Type:';
+            this._nodeInfoCache.dtCells.textContent = 'Cells:';
+            this._nodeInfoCache.dtChildren.textContent = 'Children:';
+            this._nodeInfoCache.cellTitle.textContent = 'Cells:';
+
+            // Build structure
+            const dl = this._nodeInfoCache.dl;
+            dl.appendChild(this._nodeInfoCache.dtPage);
+            dl.appendChild(this._nodeInfoCache.ddPage);
+            dl.appendChild(this._nodeInfoCache.dtType);
+            dl.appendChild(this._nodeInfoCache.ddType);
+            dl.appendChild(this._nodeInfoCache.dtCells);
+            dl.appendChild(this._nodeInfoCache.ddCells);
+            dl.appendChild(this._nodeInfoCache.dtChildren);
+            dl.appendChild(this._nodeInfoCache.ddChildren);
+
+            const cellDiv = this._nodeInfoCache.cellDiv;
+            cellDiv.style.marginTop = '10px';
+            cellDiv.appendChild(this._nodeInfoCache.cellTitle);
+
+            detailsDiv.innerHTML = '';
+            detailsDiv.appendChild(dl);
+            detailsDiv.appendChild(cellDiv);
+        }
+
+        // Update values (much faster than innerHTML)
+        this._nodeInfoCache.ddPage.textContent = node.page;
+        this._nodeInfoCache.ddType.textContent = node.type === 1 ? 'Leaf' : 'Interior';
+        this._nodeInfoCache.ddCells.textContent = node.cells.length;
+        this._nodeInfoCache.ddChildren.textContent = node.children.length;
+
+        // Update cells
+        const cellDiv = this._nodeInfoCache.cellDiv;
+        // Remove old cell entries (keep title)
+        while (cellDiv.children.length > 1) {
+            cellDiv.removeChild(cellDiv.lastChild);
+        }
+
+        if (node.cells.length > 0) {
+            // Only show first 10 cells to prevent DOM overload
+            const maxCells = Math.min(node.cells.length, 10);
+            for (let i = 0; i < maxCells; i++) {
+                const c = node.cells[i];
+                const cellDiv = document.createElement('div');
+                cellDiv.textContent = `Cell ${c.idx}: ${c.key} (${c.keyLen} bytes)`;
+                this._nodeInfoCache.cellDiv.appendChild(cellDiv);
+            }
+            if (node.cells.length > 10) {
+                const moreDiv = document.createElement('div');
+                moreDiv.textContent = `... and ${node.cells.length - 10} more`;
+                moreDiv.style.fontStyle = 'italic';
+                this._nodeInfoCache.cellDiv.appendChild(moreDiv);
+            }
+        } else {
+            const noCells = document.createElement('em');
+            noCells.textContent = 'No cells';
+            this._nodeInfoCache.cellDiv.appendChild(noCells);
+        }
     }
 
     /**

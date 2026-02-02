@@ -27,6 +27,10 @@ class EventManager {
         this._pendingEvents = [];
         this._processingScheduled = false;
 
+        // Performance: Limit visible events to prevent DOM overload
+        this._maxVisibleEvents = 500; // Only show last 500 events
+        this._eventLogEnabled = true; // Can toggle to disable log entirely
+
         // Setup scroll listener for virtual scrolling
         this._setupVirtualScroll();
 
@@ -246,8 +250,12 @@ class EventManager {
         logElement.style.height = `${totalHeight}px`;
         logElement.style.position = 'relative';
 
-        // Render visible events
-        for (let i = this._visibleStart; i < this._visibleEnd; i++) {
+        // Limit rendering to prevent DOM overload
+        const maxRender = Math.min(this._visibleEnd - this._visibleStart, 100);
+        const renderEnd = Math.min(this._visibleEnd, this._visibleStart + maxRender);
+
+        // Render visible events (limited)
+        for (let i = this._visibleStart; i < renderEnd; i++) {
             const event = this.events[i];
             if (!event) continue;
 
@@ -258,8 +266,10 @@ class EventManager {
             fragment.appendChild(eventItem);
         }
 
-        // Clear and append
-        logElement.innerHTML = '';
+        // Clear and append (faster than innerHTML)
+        while (logElement.firstChild) {
+            logElement.removeChild(logElement.firstChild);
+        }
         logElement.appendChild(fragment);
     }
 
@@ -330,11 +340,23 @@ class EventManager {
     }
 
     /**
-     * Log event to the UI with performance optimization
+     * Log event to the UI with aggressive performance optimization
      */
     logEvent(event) {
+        // Early exit if event log is disabled
+        if (!this._eventLogEnabled) return;
+
         const logElement = document.getElementById('event-log');
         if (!logElement) return;
+
+        // Performance: Prune old events to prevent DOM overload
+        if (this.events.length > this._maxVisibleEvents) {
+            // Remove oldest event from DOM
+            const firstEvent = logElement.firstElementChild;
+            if (firstEvent) {
+                firstEvent.remove();
+            }
+        }
 
         // For small number of events, render immediately
         if (this.events.length < 100) {
@@ -459,7 +481,7 @@ class EventManager {
     }
 
     /**
-     * Clear all events
+     * Clear all events (optimized)
      */
     clear() {
         this.events = [];
@@ -470,7 +492,10 @@ class EventManager {
 
         const logElement = document.getElementById('event-log');
         if (logElement) {
-            logElement.innerHTML = '';
+            // Much faster than innerHTML = ''
+            while (logElement.firstChild) {
+                logElement.removeChild(logElement.firstChild);
+            }
             logElement.style.height = '';
             logElement.style.position = '';
         }

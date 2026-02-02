@@ -31,17 +31,14 @@ class SQLiteVisApp {
     }
 
     /**
-     * Initialize the application
+     * Initialize the application (optimized with lazy loading)
      */
     async init() {
         try {
             this.updateStatus('Initializing SQLite WebAssembly...');
 
-            // Initialize visualizer
-            this.visualizer = new BTreeVisualizer('visualization-canvas');
-
-            // Connect event manager to visualizer
-            this.connectEvents();
+            // Connect event manager to visualizer setup (lazy load visualizer later)
+            this.setupEventHandlers();
 
             // Set initialized flag BEFORE loading SQLite so events are processed
             this.isInitialized = true;
@@ -52,6 +49,9 @@ class SQLiteVisApp {
             // Setup UI event handlers
             this.setupUIHandlers();
 
+            // Lazy load visualizer only when canvas is visible
+            this.setupLazyVisualizer();
+
             this.updateStatus('Ready');
             this.hideLoading();
 
@@ -60,6 +60,42 @@ class SQLiteVisApp {
             this.updateStatus('Error: ' + error.message);
             alert('Failed to initialize SQLite WebAssembly: ' + error.message);
         }
+    }
+
+    /**
+     * Setup lazy loading of visualizer when canvas is scrolled into view
+     */
+    setupLazyVisualizer() {
+        // Use IntersectionObserver to lazy load visualizer
+        if ('IntersectionObserver' in window) {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting && !this.visualizer) {
+                        // Initialize visualizer when canvas becomes visible
+                        this.visualizer = new BTreeVisualizer('visualization-canvas');
+                        this.connectEvents();
+                        observer.disconnect();
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            const canvas = document.getElementById('visualization-canvas');
+            if (canvas) {
+                observer.observe(canvas);
+            }
+        } else {
+            // Fallback: initialize immediately
+            this.visualizer = new BTreeVisualizer('visualization-canvas');
+            this.connectEvents();
+        }
+    }
+
+    /**
+     * Setup event handlers before visualizer is ready
+     */
+    setupEventHandlers() {
+        // Event handlers will be connected in connectEvents() when visualizer is ready
+        this._pendingEvents = [];
     }
 
     /**
@@ -149,13 +185,13 @@ class SQLiteVisApp {
     }
 
     /**
-     * Connect event manager to visualizer
+     * Connect event manager to visualizer (optimized to check if visualizer exists)
      */
     connectEvents() {
         // B-tree events
         eventManager.on(0, (e) => { // BTREE_OPEN
             this.debugLog('[BTREE_OPEN] Page size:', e.data.pageSize, 'Pages:', e.data.numPages);
-            this.visualizer.pageSize = e.data.pageSize;
+            if (this.visualizer) this.visualizer.pageSize = e.data.pageSize;
         });
 
         eventManager.on(1, (e) => { // BTREE_CLOSE
@@ -165,21 +201,23 @@ class SQLiteVisApp {
 
         eventManager.on(2, (e) => { // BTREE_INSERT
             this.debugLog('[BTREE_INSERT] Page:', e.data.page, 'Cell:', e.data.cell, 'KeyLen:', e.data.keyLen);
-            this.visualizer.addCell(e.data.page, e.data.cell, e.data.keyLen);
+            if (this.visualizer) this.visualizer.addCell(e.data.page, e.data.cell, e.data.keyLen);
         });
 
         eventManager.on(3, (e) => { // BTREE_DELETE
             this.debugLog('[BTREE_DELETE] Page:', e.data.page, 'Cell:', e.data.cell);
-            this.visualizer.deleteCell(e.data.page, e.data.cell);
+            if (this.visualizer) this.visualizer.deleteCell(e.data.page, e.data.cell);
         });
 
         eventManager.on(4, (e) => { // BTREE_SPLIT
             this.debugLog('[BTREE_SPLIT] Original:', e.data.originalPage, 'New:', e.data.newPage, 'SplitCell:', e.data.splitCell);
-            this.visualizer.splitPage(
-                e.data.originalPage,
-                e.data.newPage,
-                e.data.splitCell
-            );
+            if (this.visualizer) {
+                this.visualizer.splitPage(
+                    e.data.originalPage,
+                    e.data.newPage,
+                    e.data.splitCell
+                );
+            }
         });
 
         eventManager.on(5, (e) => { // BTREE_BALANCE
@@ -189,46 +227,48 @@ class SQLiteVisApp {
 
         eventManager.on(6, (e) => { // PAGE_ALLOCATE
             this.debugLog('[PAGE_ALLOCATE] Page:', e.data.page, 'Type:', e.data.type);
-            this.visualizer.addPage(e.data.page, e.data.type);
+            if (this.visualizer) this.visualizer.addPage(e.data.page, e.data.type);
         });
 
         eventManager.on(7, (e) => { // PAGE_FREE
             this.debugLog('[PAGE_FREE] Page:', e.data.page);
-            this.visualizer.nodes.delete(e.data.page);
-            this.visualizer.layout();
-            this.visualizer.draw();
+            if (this.visualizer) {
+                this.visualizer.nodes.delete(e.data.page);
+                this.visualizer.layout();
+                this.visualizer.draw();
+            }
         });
 
         // Parse events
         eventManager.on(8, (e) => { // PARSE_START
             this.debugLog('[PARSE_START] SQL:', e.data.sql);
-            this.visualizer.showParseStart(e.data.sql);
+            if (this.visualizer) this.visualizer.showParseStart(e.data.sql);
         });
 
         eventManager.on(9, (e) => { // PARSE_TOKEN
             this.debugLog('[PARSE_TOKEN] Token:', e.data.token, 'Type:', e.data.type);
-            this.visualizer.showParseToken(e.data.token, e.data.type);
+            if (this.visualizer) this.visualizer.showParseToken(e.data.token, e.data.type);
         });
 
         eventManager.on(10, (e) => { // PARSE_COMPLETE
             this.debugLog('[PARSE_COMPLETE] Success:', e.data.success);
-            this.visualizer.showParseComplete(e.data.success);
+            if (this.visualizer) this.visualizer.showParseComplete(e.data.success);
         });
 
         // VDBE events
         eventManager.on(11, (e) => { // VDBE_START
             this.debugLog('[VDBE_START] NumOpcodes:', e.data.numOpcodes);
-            this.visualizer.showVdbeStart(e.data.numOpcodes);
+            if (this.visualizer) this.visualizer.showVdbeStart(e.data.numOpcodes);
         });
 
         eventManager.on(12, (e) => { // VDBE_OPCODE
             this.debugLog('[VDBE_OPCODE] PC:', e.data.pc, 'Opcode:', e.data.opcode, 'P1:', e.data.p1, 'P2:', e.data.p2, 'P3:', e.data.p3);
-            this.visualizer.showVdbeOpcode(e.data.pc, e.data.opcode, e.data.p1, e.data.p2, e.data.p3);
+            if (this.visualizer) this.visualizer.showVdbeOpcode(e.data.pc, e.data.opcode, e.data.p1, e.data.p2, e.data.p3);
         });
 
         eventManager.on(13, (e) => { // VDBE_COMPLETE
             this.debugLog('[VDBE_COMPLETE] ResultCode:', e.data.resultCode);
-            this.visualizer.showVdbeComplete(e.data.resultCode);
+            if (this.visualizer) this.visualizer.showVdbeComplete(e.data.resultCode);
         });
 
         this.debugLog('All event handlers registered successfully');
