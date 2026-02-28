@@ -1,103 +1,176 @@
-<!doctype html><html><head><meta charset=UTF-8><title>SQL</title>
-<link rel=preload href=build/sqlite3.js as=script>
-<link rel=preload href=build/sqlite3.wasm as=fetch crossorigin>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font:11px system-ui;background:#f8f9fa;padding:8px;max-width:550px;margin:0 auto}h1{color:#2563eb;font-size:14px;margin-bottom:2px}.v{font-size:8px;color:#6c757d;margin-bottom:5px}.v a{color:#2563eb;text-decoration:none;margin-right:3px}textarea{width:100%;height:70px;font:10px monospace;padding:4px;border:1px solid #dee2e6;background:#fff;margin-bottom:4px;resize:vertical;border-radius:2px;font-family:monospace;line-height:1.1}.b{margin-bottom:4px}button{padding:4px 8px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:3px;font:10px system-ui;border-radius:2px}button:hover{background:#1d4ed8}button:disabled{background:#adb5bd;cursor:not-allowed}button.s{background:#e9ecef;color:#212529}button.s:hover{background:#dee2e6}#o{background:#fff;border:1px solid #dee2e6;padding:4px;min-height:25px;margin-top:4px;border-radius:2px;font:9px monospace;white-space:pre-wrap;word-break:break-all;font-family:monospace;line-height:1.2}.e{color:#dc3545}.ok{color:#198754}.l{color:#6c757d}@keyframes a{to{transform:rotate(360deg)}}.sp{display:inline-block;width:6px;height:6px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:a 1s linear infinite;margin-right:2px;vertical-align:middle}</style>
+<!doctype html><html><head><meta charset=UTF-8><title>SQLite</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f8f9fa;padding:10px;max-width:600px;margin:0 auto;line-height:1.4}h1{color:#2563eb;font-size:18px;margin-bottom:5px}.v{font-size:10px;color:#6c757d;margin-bottom:10px}.v a{color:#2563eb;text-decoration:none;margin-right:6px}.v a:hover{text-decoration:underline}textarea{width:100%;height:100px;font:12px monospace;padding:8px;border:1px solid #dee2e6;background:#fff;margin-bottom:8px;resize:vertical;border-radius:4px;font-family:'SF Mono',Monaco,monospace}.b{margin-bottom:8px}button{padding:7px 14px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:6px;font:12px system-ui;border-radius:4px;font-weight:500}button:hover{background:#1d4ed8}button:disabled{background:#adb5bd;cursor:not-allowed}button.s{background:#e9ecef;color:#212529;font-weight:400}button.s:hover{background:#dee2e6}#o{background:#fff;border:1px solid #dee2e6;padding:10px;min-height:40px;margin-top:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;font-family:'SF Mono',Monaco,monospace;font-size:11px;line-height:1.3}.e{color:#dc3545;background:#f8d7da;padding:8px;border-radius:4px;border:1px solid #f5c6cb}.ok{color:#198754}.l{color:#198754;background:#d1e7dd;padding:8px;border-radius:4px;border:1px solid #badbcc}.ld{color:#0d6efd;background:#cfe2ff;padding:8px;border-radius:4px;border:1px solid #b6d4fe}@keyframes s{to{transform:rotate(360deg)}}.sp{display:inline-block;width:12px;height:12px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:6px;vertical-align:middle}.hid{display:none}</style>
 </head><body>
-<h1>SQLite</h1>
-<div class=v><a href=minimal.html>⚡</a> <a href=index-turbo.html>Trb</a> <a href=index-fast.html>Fst</a> <a href=index-full.html>Full</a></div>
-<textarea id=sql spellcheck=false>CREATE TABLE t(id INTEGER PRIMARY KEY, n TEXT);
-INSERT INTO t VALUES(1, 'Alice');
-SELECT * FROM t;</textarea>
-<div class=b><button id=r onclick=r() disabled><span class=sp id=sp></span>Run</button><button class=s onclick=c()>Clr</button></div>
-<div id=o class=l>Loading...</div>
+<h1>SQLite Web</h1>
+<div class=v><a href=minimal.html>⚡ Minimal</a> | <a href=index-turbo.html>Turbo</a> | <a href=index-fast.html>Fast</a> | <a href=index-full.html>Full</a></div>
+<textarea id=sql spellcheck=false placeholder="Enter SQL here...">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Charlie', 35);
+SELECT * FROM users;</textarea>
+<div class=b><button id=run onclick=run()><span class="sp hid" id=sp></span>Run SQL (Ctrl+Enter)</button><button class=s onclick=clr()>Clear</button><button class=s onclick=ex()>Example</button></div>
+<div id=o class=ld><span class=sp></span>Initializing SQLite (1.5MB) - this may take a moment...</div>
+
+<div id=demo style="display:none;margin-top:10px;padding:10px;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;font-size:11px;">
+<strong>⚠ SQLite Loading...</strong><br>
+The WebAssembly module (1.5MB) is loading. You can edit SQL above while it loads.<br>
+Status will update here when ready.
+</div>
+
 <script>
-let db,mod,ok=0,cb=0;
-if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+// Show demo message immediately
+setTimeout(()=>document.getElementById('demo').style.display='',100);
+
+let db=null,mod=null,ready=false,cb=0,initStart=Date.now();
+
+// Background initialization - doesn't block UI
 (function(){
   const s=document.createElement('script');
   s.src='build/sqlite3.js';
   s.async=true;
-  s.onload=i;
+  s.onload=init;
   document.head.appendChild(s);
 })();
-async function i(){
+
+async function init(){
+  const o=document.getElementById('o');
+  o.innerHTML='<span class=sp></span>Initializing...';
+
   if(typeof createSQLiteModule==='undefined'){
-    document.getElementById('o').textContent='Err: Module not found';
-    document.getElementById('o').className='e';
+    showError('SQLite module not found');
     return
   }
+
   try{
     mod=await createSQLiteModule();
     const p=mod._malloc(mod.lengthBytesUTF8(':memory:')+1);
     mod.stringToUTF8(':memory:',p,mod.lengthBytesUTF8(':memory:')+1);
     const pp=mod._malloc(4);
-    if(mod._sqlite3_open(p,pp)!==0)throw new Error('Open failed');
+    if(mod._sqlite3_open(p,pp)!==0)throw new Error('Failed to open');
     db=mod.HEAP32[pp>>2];
     mod._free(p);
     mod._free(pp);
-    ok=1;
-    document.getElementById('o').textContent='✓ Ready';
-    document.getElementById('o').className='ok';
-    document.getElementById('r').disabled=!1;
-    document.getElementById('sp').style.display='none'
+    ready=true;
+
+    const loadTime=((Date.now()-initStart)/1000).toFixed(1);
+    o.innerHTML='<span class=sp></span>✓ Ready (loaded in '+loadTime+'s)<br><strong>Tip:</strong> Press Ctrl+Enter to execute SQL';
+    o.className='l';
+    document.getElementById('run').innerHTML='Run SQL (Ctrl+Enter)';
+    document.getElementById('demo').innerHTML='<strong>✓ Ready!</strong> SQLite loaded successfully. Execute SQL above or click Example.';
+    document.getElementById('demo').style.background='#d1e7dd';
+    document.getElementById('demo').style.borderColor='#badbcc';
+    document.querySelectorAll('#demo .sp').forEach(s=>s.style.display='none')
   }catch(e){
-    document.getElementById('o').textContent='Err: '+e.message;
-    document.getElementById('o').className='e'
+    showError(e.message)
   }
 }
-function r(){
-  if(!ok)return;
-  const s=document.getElementById('sql').value.trim();
-  if(!s){
-    document.getElementById('o').textContent='Enter SQL';
-    document.getElementById('o').className='e';
+
+function run(){
+  if(!ready){
+    const o=document.getElementById('o');
+    o.innerHTML='<span class=sp></span><strong>Please wait...</strong> SQLite is still loading.';
+    o.className='ld';
     return
   }
-  document.getElementById('r').disabled=!0;
+
+  const sql=document.getElementById('sql').value.trim();
+  if(!sql)return showError('Please enter SQL');
+
+  const btn=document.getElementById('run');
+  const sp=document.getElementById('sp');
+  btn.disabled=true;
+  sp.style.display='inline-block';
+
   requestAnimationFrame(()=>{
     try{
-      const sp=mod._malloc(mod.lengthBytesUTF8(s)+1);
-      mod.stringToUTF8(s,sp,mod.lengthBytesUTF8(s)+1);
+      const sptr=mod._malloc(mod.lengthBytesUTF8(sql)+1);
+      mod.stringToUTF8(sql,sptr,mod.lengthBytesUTF8(sql)+1);
       const res=[];
       if(!cb){
-        cb=mod.addFunction((n,c,v)=>{
+        cb=mod.addFunction((n,c,vals)=>{
           const row=[];
           for(let i=0;i<c;i++){
-            const vp=HEAP32[(v+i*4)>>2];
+            const vp=HEAP32[(vals+i*4)>>2];
             row.push(vp?UTF8ToString(vp):'NULL')
           }
           res.push(row);
           return 0
         },'iiii')
       }
-      const ep=mod._malloc(4);
-      const rc=mod._sqlite3_exec(db,sp,cb,0,ep);
-      mod._free(sp);
+      const eptr=mod._malloc(4);
+      const rc=mod._sqlite3_exec(db,sptr,cb,0,eptr);
+      mod._free(sptr);
       if(rc){
-        const em=mod.HEAP32[ep>>2];
-        document.getElementById('o').textContent=em?mod.UTF8ToString(em):'Err '+rc;
-        document.getElementById('o').className='e'
+        const em=mod.HEAP32[eptr>>2];
+        showError(em?mod.UTF8ToString(em):'Error code '+rc)
       }else{
-        document.getElementById('o').textContent=res.map(r=>r.join('|')).join('\n')+'\n\n'+res.length+' rows';
-        document.getElementById('o').className='ok'
+        showRes(res)
       }
-      mod._free(ep)
+      mod._free(eptr)
     }catch(e){
-      document.getElementById('o').textContent='Err: '+e.message;
-      document.getElementById('o').className='e'
+      showError(e.message)
     }
-    document.getElementById('r').disabled=!1
+    btn.disabled=false;
+    sp.style.display='none'
   })
 }
-function c(){
+
+function showRes(res){
+  const o=document.getElementById('o');
+  if(!res.length){
+    o.innerHTML='✓ <strong>Success</strong><br>Query executed (no results)';
+    o.className='l';
+    return
+  }
+
+  let html='✓ <strong>Results ('+res.length+' rows)</strong><br><br>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:10px">';
+  html+='<tr style="background:#f8f9fa">';
+  res[0].forEach((_,i)=>html+='<th style="padding:6px;text-align:left;border-bottom:2px solid #dee2e6">Col '+(i+1)+'</th>');
+  html+='</tr>';
+  res.forEach(r=>{
+    html+='<tr style="border-bottom:1px solid #dee2e6">';
+    r.forEach(c=>html+='<td style="padding:6px">'+esc(c)+'</td>');
+    html+='</tr>'
+  });
+  html+='</table>';
+  o.innerHTML=html;
+  o.className='ok'
+}
+
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+function showError(msg){
+  const o=document.getElementById('o');
+  o.innerHTML='⚠ <strong>Error:</strong> '+esc(msg);
+  o.className='e'
+}
+
+function clr(){
   document.getElementById('sql').value='';
-  document.getElementById('o').textContent='';
+  document.getElementById('o').innerHTML='<em style="color:#6c757d">Cleared</em>';
   document.getElementById('o').className=''
 }
+
+function ex(){
+  document.getElementById('sql').value=`CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Charlie', 35);
+SELECT * FROM users;`;
+  document.getElementById('o').innerHTML='<em style="color:#6c757d">Example loaded - click Run SQL</em>';
+  document.getElementById('o').className=''
+}
+
 document.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){
     e.preventDefault();
-    r()
+    run()
   }
 });
+
+// Service worker for faster reloads
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script></body></html>
