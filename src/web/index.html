@@ -1,186 +1,107 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite Turbo</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font: 13px -apple-system, system-ui, sans-serif;
-            background: #f5f5f5;
-            color: #333;
-            line-height: 1.4;
-        }
-        #app {
-            max-width: 800px;
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-        }
-        header {
-            background: #fff;
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid #ddd;
-        }
-        h1 { font-size: 1.25rem; color: #2563eb; }
-        .links {
-            font-size: 11px;
-            margin-top: 0.25rem;
-            color: #666;
-        }
-        .links a { color: #2563eb; text-decoration: none; }
-        main {
-            flex: 1;
-            padding: 0.75rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-        section {
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            padding: 0.75rem;
-        }
-        h2 {
-            font-size: 0.9rem;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        }
-        #sql-input {
-            width: 100%;
-            height: 100px;
-            padding: 0.5rem;
-            font: 12px monospace;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            resize: vertical;
-            background: #f9f9f9;
-        }
-        .btn-group {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
-        button {
-            padding: 0.4rem 0.75rem;
-            border: none;
-            border-radius: 3px;
-            font: 13px system-ui;
-            cursor: pointer;
-            background: #e5e5e5;
-            color: #333;
-        }
-        button:hover { background: #d5d5d5; }
-        #execute-btn { background: #2563eb; color: white; }
-        #execute-btn:hover { background: #1d4ed8; }
-        #output {
-            background: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            padding: 0.5rem;
-            font: 12px monospace;
-            min-height: 40px;
-        }
-        #event-log {
-            background: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            padding: 0.5rem;
-            overflow-y: auto;
-            font: 11px monospace;
-            min-height: 100px;
-            max-height: 200px;
-        }
-        .event {
-            padding: 0.2rem 0.4rem;
-            margin-bottom: 0.2rem;
-            background: #fff;
-            border-left: 2px solid #ddd;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        footer {
-            background: #fff;
-            padding: 0.4rem 1rem;
-            border-top: 1px solid #ddd;
-            font: 11px system-ui;
-            color: #666;
-        }
-        #loading {
-            position: fixed;
-            inset: 0;
-            background: rgba(255,255,255,0.95);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        #loading.hidden { display: none; }
-        .spinner {
-            width: 30px;
-            height: 30px;
-            border: 3px solid #ddd;
-            border-top-color: #2563eb;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #loading p { margin-top: 0.75rem; color: #666; }
-        label { display: flex; align-items: center; gap: 0.25rem; font-size: 12px; }
-    </style>
+  <meta charset="UTF-8">
+  <title>SQLite Web</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font:12px system-ui;background:#f5f5f5;padding:10px;max-width:600px;margin:0 auto}
+    h1{color:#2563eb;margin-bottom:10px;font-size:18px}
+    .ver{font-size:10px;color:#666;margin-bottom:10px}
+    .ver a{color:#2563eb}
+    textarea{width:100%;height:80px;font:11px monospace;padding:5px;border:1px solid #ddd;background:#fff;margin-bottom:5px;resize:vertical}
+    button{padding:5px 10px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:5px;font:12px system-ui;border-radius:3px}
+    button:hover{background:#1d4ed8}
+    #out{padding:5px;background:#fff;border:1px solid #ddd;min-height:30px;margin-top:5px;font:11px monospace;border-radius:3px}
+    .err{color:#ef4444}.ok{color:#10b981}
+  </style>
 </head>
 <body>
-    <div id="app">
-        <header>
-            <h1>SQLite Turbo ⚡</h1>
-            <div class="links">
-                <a href="index-turbo.html">Turbo</a> |
-                <a href="index-fast.html">Fast</a> |
-                <a href="index-full.html">Full</a>
-            </div>
-        </header>
+  <h1>SQLite Web</h1>
+  <div class="ver">
+    <a href="minimal.html">⚡ Minimal</a> |
+    <a href="index-turbo.html">Turbo</a> |
+    <a href="index-fast.html">Fast</a> |
+    <a href="index-full.html">Full</a>
+  </div>
+  <textarea id="sql" spellcheck="false">CREATE TABLE test(id INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO test VALUES(1, 'Alice');
+INSERT INTO test VALUES(2, 'Bob');
+SELECT * FROM test;</textarea>
+  <div>
+    <button onclick="run()">Execute</button>
+    <button onclick="clr()">Clear</button>
+  </div>
+  <div id="out">Loading...</div>
 
-        <main>
-            <section>
-                <h2>SQL Editor</h2>
-                <textarea id="sql-input" spellcheck="false">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-INSERT INTO users VALUES (1, 'Alice', 30);
-SELECT * FROM users;</textarea>
-                <div class="btn-group">
-                    <button id="execute-btn">Execute</button>
-                    <button id="clear-btn">Clear</button>
-                </div>
-            </section>
+  <script>
+    let db, mod;
 
-            <section>
-                <h2>Output</h2>
-                <div id="output"></div>
-            </section>
+    async function init() {
+      // Wait for SQLite module
+      while (typeof createSQLiteModule === 'undefined') {
+        await new Promise(r => setTimeout(r, 50));
+      }
 
-            <section>
-                <h2>Events <button id="clear-events-btn">Clear</button></h2>
-                <label><input type="checkbox" id="events-toggle"> Enable Events</label>
-                <div id="event-log"></div>
-            </section>
-        </main>
+      mod = await createSQLiteModule();
 
-        <footer>
-            <span id="db-status">Loading...</span> |
-            Events: <span id="event-count">0</span>
-        </footer>
-    </div>
+      // Open in-memory database
+      const pathPtr = mod._malloc(mod.lengthBytesUTF8(':memory:') + 1);
+      mod.stringToUTF8(':memory:', pathPtr, mod.lengthBytesUTF8(':memory:') + 1);
 
-    <div id="loading">
-        <div class="spinner"></div>
-        <p>Loading SQLite...</p>
-    </div>
+      const dbPtrPtr = mod._malloc(4);
+      const rc = mod._sqlite3_open(pathPtr, dbPtrPtr);
 
-    <script src="build/sqlite3.js"></script>
-    <script src="js/events-turbo.js"></script>
-    <script src="js/main-turbo.js"></script>
+      if (rc !== 0) {
+        document.getElementById('out').innerText = 'Error opening database';
+        document.getElementById('out').className = 'err';
+        return;
+      }
+
+      db = mod.HEAP32[dbPtrPtr >> 2];
+      mod._free(pathPtr);
+      mod._free(dbPtrPtr);
+
+      document.getElementById('out').innerText = 'Ready';
+    }
+
+    function run() {
+      const sql = document.getElementById('sql').value.trim();
+      if (!sql) {
+        document.getElementById('out').innerText = 'Enter SQL';
+        document.getElementById('out').className = 'err';
+        return;
+      }
+
+      const sqlLen = mod.lengthBytesUTF8(sql) + 1;
+      const sqlPtr = mod._malloc(sqlLen);
+      mod.stringToUTF8(sql, sqlPtr, sqlLen);
+
+      const errPtr = mod._malloc(4);
+      const rc = mod._sqlite3_exec(db, sqlPtr, 0, 0, errPtr);
+
+      mod._free(sqlPtr);
+
+      if (rc !== 0) {
+        const errMsgPtr = mod.HEAP32[errPtr >> 2];
+        const errMsg = errMsgPtr ? mod.UTF8ToString(errMsgPtr) : 'Error ' + rc;
+        document.getElementById('out').innerText = errMsg;
+        document.getElementById('out').className = 'err';
+      } else {
+        document.getElementById('out').innerText = '✓ Executed successfully';
+        document.getElementById('out').className = 'ok';
+      }
+
+      mod._free(errPtr);
+    }
+
+    function clr() {
+      document.getElementById('sql').value = '';
+      document.getElementById('out').innerText = '';
+    }
+
+    // Start initialization
+    init();
+  </script>
 </body>
 </html>

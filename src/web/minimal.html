@@ -1,180 +1,36 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite SQL Runner - Fast Mode</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: monospace;
-            padding: 20px;
-            background: #1a1a1a;
-            color: #00ff00;
-        }
-        .container { max-width: 900px; margin: 0 auto; }
-        h1 { margin-bottom: 10px; }
-        textarea {
-            width: 100%;
-            height: 150px;
-            background: #0a0a0a;
-            color: #00ff00;
-            border: 1px solid #333;
-            padding: 10px;
-            font-family: monospace;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-        .button-row { margin-bottom: 20px; }
-        button {
-            background: #333;
-            color: #00ff00;
-            border: 1px solid #00ff00;
-            padding: 10px 20px;
-            margin-right: 10px;
-            cursor: pointer;
-            font-family: monospace;
-        }
-        button:hover { background: #00ff00; color: #000; }
-        #output {
-            background: #0a0a0a;
-            border: 1px solid #333;
-            padding: 10px;
-            min-height: 200px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .success { color: #00ff00; }
-        .error { color: #ff0000; }
-        #status {
-            margin-top: 10px;
-            font-size: 12px;
-            color: #666;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>SQLite SQL Runner</h1>
-        <textarea id="sql-input" placeholder="Enter SQL here...
-CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
-INSERT INTO users VALUES (1, 'Alice');
-SELECT * FROM users;"></textarea>
-        <div class="button-row">
-            <button onclick="executeSQL()">Execute (Ctrl+Enter)</button>
-            <button onclick="clearSQL()">Clear</button>
-        </div>
-        <div id="output">Ready. Enter SQL above and press Execute.</div>
-        <div id="status"></div>
-    </div>
-
-    <script src="build/sqlite3.js"></script>
-    <script>
-        let db = null;
-        let sqliteModule = null;
-
-        function log(msg, type = 'info') {
-            const output = document.getElementById('output');
-            const timestamp = new Date().toLocaleTimeString();
-            const prefix = type === 'error' ? '[ERROR]' : type === 'success' ? '[SUCCESS]' : '[INFO]';
-            output.innerHTML += `\n${timestamp} ${prefix} ${msg}`;
-            output.scrollTop = output.scrollHeight;
-        }
-
-        function setStatus(msg) {
-            document.getElementById('status').textContent = msg;
-        }
-
-        async function initSQLite() {
-            try {
-                setStatus('Loading SQLite WASM...');
-                if (typeof createSQLiteModule === 'undefined') {
-                    throw new Error('SQLite WASM not found. Run: make build-wasm');
-                }
-
-                sqliteModule = await createSQLiteModule();
-                log('SQLite WASM loaded', 'success');
-
-                const dbPath = ':memory:';
-                const dbPathLen = sqliteModule.lengthBytesUTF8(dbPath) + 1;
-                const dbPathPtr = sqliteModule._malloc(dbPathLen);
-                sqliteModule.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
-
-                const dbPtrPtr = sqliteModule._malloc(4);
-                const result = sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
-
-                if (result !== 0) {
-                    throw new Error('Failed to open database');
-                }
-
-                db = sqliteModule.HEAP32[dbPtrPtr >> 2];
-                sqliteModule._free(dbPathPtr);
-                sqliteModule._free(dbPtrPtr);
-
-                log('Database ready (in-memory)', 'success');
-                setStatus('Ready');
-            } catch (error) {
-                log('Error: ' + error.message, 'error');
-                setStatus('Error');
-            }
-        }
-
-        function executeSQL() {
-            const sql = document.getElementById('sql-input').value.trim();
-            if (!sql) {
-                log('Please enter SQL', 'error');
-                return;
-            }
-
-            if (!db || !sqliteModule) {
-                log('Database not initialized', 'error');
-                return;
-            }
-
-            log('Executing: ' + sql.substring(0, 100) + (sql.length > 100 ? '...' : ''));
-
-            try {
-                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
-                const sqlPtr = sqliteModule._malloc(sqlLen);
-                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
-
-                const errorPtrPtr = sqliteModule._malloc(4);
-                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
-
-                const result = sqliteModule._sqlite3_exec(db, sqlPtr, 0, 0, errorPtrPtr);
-
-                sqliteModule._free(sqlPtr);
-
-                if (result !== 0) {
-                    const errorMsgPtr = sqliteModule.HEAP32[errorPtrPtr >> 2];
-                    if (errorMsgPtr) {
-                        const errorMsg = sqliteModule.UTF8ToString(errorMsgPtr);
-                        log('SQL Error: ' + errorMsg, 'error');
-                    }
-                } else {
-                    log('Query executed successfully', 'success');
-                }
-
-                sqliteModule._free(errorPtrPtr);
-            } catch (error) {
-                log('Error: ' + error.message, 'error');
-            }
-        }
-
-        function clearSQL() {
-            document.getElementById('sql-input').value = '';
-            log('--- Cleared ---');
-        }
-
-        // Keyboard shortcut
-        document.getElementById('sql-input').addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'Enter') {
-                executeSQL();
-            }
-        });
-
-        // Initialize
-        initSQLite();
-    </script>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SQLite</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f5f5f5;padding:10px;max-width:600px;margin:0 auto}textarea{width:100%;height:80px;font:11px monospace;padding:5px;border:1px solid #ddd;background:#fff;margin-bottom:5px}button{padding:5px 10px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:5px;font:12px system-ui}#out{padding:5px;background:#fff;border:1px solid #ddd;min-height:30px;margin-top:5px;font:11px monospace}.err{color:#ef4444}.ok{color:#10b981}</style></head><body><textarea id=sql spellcheck=false>CREATE TABLE test(id INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO test VALUES(1, 'Alice');
+SELECT * FROM test;</textarea><div><button onclick=run()>Execute</button><button onclick=clr()>Clear</button></div><div id=out>Loading...</div><script>
+let db,mod;
+async function init(){
+  while(typeof createSQLiteModule==='undefined')await new Promise(r=>setTimeout(r,50));
+  mod=await createSQLiteModule();
+  const p=mod._malloc(mod.lengthBytesUTF8(':memory:')+1);
+  mod.stringToUTF8(':memory:',p,mod.lengthBytesUTF8(':memory:')+1);
+  const pp=mod._malloc(4);
+  mod._sqlite3_open(p,pp);
+  db=mod.HEAP32[pp>>2];
+  mod._free(p);mod._free(pp);
+  document.getElementById('out').innerText='Ready';
+}
+function run(){
+  const sql=document.getElementById('sql').value.trim();
+  if(!sql)return document.getElementById('out').innerText='Enter SQL',document.getElementById('out').className='err';
+  const sp=mod._malloc(mod.lengthBytesUTF8(sql)+1);
+  mod.stringToUTF8(sql,sp,mod.lengthBytesUTF8(sql)+1);
+  const ep=mod._malloc(4);
+  const rc=mod._sqlite3_exec(db,sp,0,0,ep);
+  mod._free(sp);
+  if(rc){
+    const em=mod.HEAP32[ep>>2];
+    document.getElementById('out').innerText=em?mod.UTF8ToString(em):'Error '+rc;
+    document.getElementById('out').className='err';
+  }else{
+    document.getElementById('out').innerText='✓ OK';
+    document.getElementById('out').className='ok';
+  }
+  mod._free(ep);
+}
+function clr(){document.getElementById('sql').value='';document.getElementById('out').innerText='';}
+init();
+</script></body></html>
