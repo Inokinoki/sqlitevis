@@ -6,30 +6,29 @@
   <title>SQLite Web</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font:13px system-ui;background:#f5f5f5;padding:15px;max-width:700px;margin:0 auto;line-height:1.4}
-    h1{color:#2563eb;margin-bottom:5px;font-size:20px}
-    .ver{font-size:11px;color:#666;margin-bottom:12px}
-    .ver a{color:#2563eb;text-decoration:none;margin-right:8px}
+    body{font:12px system-ui;background:#f8f9fa;padding:12px;max-width:650px;margin:0 auto;font-family:-apple-system,system-ui,sans-serif}
+    h1{color:#2563eb;font-size:18px;margin-bottom:4px}
+    .ver{font-size:10px;color:#6c757d;margin-bottom:10px}
+    .ver a{color:#2563eb;text-decoration:none;margin-right:6px}
     .ver a:hover{text-decoration:underline}
-    textarea{width:100%;height:100px;font:12px monospace;padding:8px;border:1px solid #ddd;background:#fff;margin-bottom:8px;resize:vertical;border-radius:4px;font-family:'SF Mono','Monaco','Cascadia Code',monospace}
-    .btns{margin-bottom:10px}
-    button{padding:7px 14px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:6px;font:13px system-ui;border-radius:4px;font-weight:500}
+    textarea{width:100%;height:90px;font:11px monospace;padding:6px;border:1px solid #dee2e6;background:#fff;margin-bottom:6px;resize:vertical;border-radius:3px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;line-height:1.3}
+    .btns{margin-bottom:8px}
+    button{padding:6px 12px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:5px;font:12px system-ui;border-radius:3px}
     button:hover{background:#1d4ed8}
-    button:disabled{background:#ccc;cursor:not-allowed}
-    button.sec{background:#e5e5e5;color:#333}
-    button.sec:hover{background:#d5d5d5}
-    #out{background:#fff;border:1px solid #ddd;padding:10px;min-height:50px;margin-top:8px;border-radius:4px;font:12px system-ui}
-    .err{color:#ef4444;background:#fef2f2;padding:10px;border-radius:4px;border:1px solid #fecaca}
-    .ok{color:#10b981}
-    .load{color:#666;font-style:italic}
-    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
-    th,td{padding:8px;text-align:left;border-bottom:1px solid #eee}
-    th{background:#f9f9f9;font-weight:600;color:#333}
-    tr:hover{background:#f5f5f5}
-    .meta{color:#666;font-size:11px;margin-top:8px}
-    .empty{text-align:center;color:#999;padding:20px;font-style:italic}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    .spinner{display:inline-block;width:12px;height:12px;border:2px solid #ddd;border-top-color:#2563eb;border-radius:50%;animation:spin 1s linear infinite;margin-right:5px;vertical-align:middle}
+    button:disabled{background:#adb5bd;cursor:not-allowed}
+    button.sec{background:#e9ecef;color:#212529}
+    button.sec:hover{background:#dee2e6}
+    #out{background:#fff;border:1px solid #dee2e6;padding:8px;min-height:40px;margin-top:6px;border-radius:3px;font:11px system-ui}
+    .err{color:#dc3545;background:#f8d7da;padding:8px;border-radius:3px;border:1px solid #f5c6cb}
+    .ok{color:#198754}
+    .load{color:#6c757d;font-style:italic}
+    table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
+    th,td{padding:6px;text-align:left;border-bottom:1px solid #dee2e6}
+    th{background:#f8f9fa;font-weight:600;color:#212529}
+    tr:hover{background:#f8f9fa}
+    .meta{color:#6c757d;font-size:10px;margin-top:6px}
+    @keyframes s{to{transform:rotate(360deg)}}
+    .spin{display:inline-block;width:10px;height:10px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:4px;vertical-align:middle}
   </style>
 </head>
 <body>
@@ -41,23 +40,21 @@
     <a href="index-full.html">Full</a>
   </div>
 
-  <textarea id="sql" spellcheck="false" placeholder="Loading SQLite module...">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+  <textarea id="sql" spellcheck="false">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES(1, 'Alice', 30);
 INSERT INTO users VALUES(2, 'Bob', 25);
-INSERT INTO users VALUES(3, 'Charlie', 35);
 SELECT * FROM users;</textarea>
 
   <div class="btns">
-    <button id="runBtn" onclick="run()" disabled><span class="spinner" style="display:none" id="spin"></span>Execute (Ctrl+Enter)</button>
+    <button id="runBtn" onclick="run()" disabled><span class="spin" style="display:none" id="spin"></span>Run (Ctrl+Enter)</button>
     <button class="sec" onclick="clr()">Clear</button>
-    <button class="sec" onclick="example()">Load Example</button>
   </div>
 
-  <div id="out" class="load">Loading SQLite module...</div>
+  <div id="out" class="load">Loading...</div>
 
   <script>
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-    let db, mod, ready = false;
+    let db, mod, ready = false, cbPtr = 0;
 
     (function(){
       const s = document.createElement('script');
@@ -69,119 +66,103 @@ SELECT * FROM users;</textarea>
 
     async function init() {
       if (typeof createSQLiteModule === 'undefined') {
-        showErr('SQLite module not found');
+        showErr('Module not found');
         return;
       }
-
       try {
         mod = await createSQLiteModule();
         const p = mod._malloc(mod.lengthBytesUTF8(':memory:') + 1);
         mod.stringToUTF8(':memory:', p, mod.lengthBytesUTF8(':memory:') + 1);
         const pp = mod._malloc(4);
-
-        if (mod._sqlite3_open(p, pp) !== 0) {
-          throw new Error('Failed to open database');
-        }
-
+        if (mod._sqlite3_open(p, pp) !== 0) throw new Error('Open failed');
         db = mod.HEAP32[pp >> 2];
         mod._free(p);
         mod._free(pp);
-
         ready = true;
-        document.getElementById('out').innerHTML = '<div class="ok">✓ Ready - Execute SQL to see results</div>';
+        document.getElementById('out').innerHTML = '<div class="ok">✓ Ready</div>';
         document.getElementById('runBtn').disabled = false;
-        document.getElementById('sql').placeholder = 'Enter SQL here...';
       } catch(e) {
-        showErr('Initialization error: ' + e.message);
+        showErr(e.message);
       }
     }
 
     function run() {
-      if (!ready) {
-        document.getElementById('out').innerHTML = '<span class="spinner"></span>Please wait...';
-        return;
-      }
-
+      if (!ready) return;
       const sql = document.getElementById('sql').value.trim();
-      if (!sql) {
-        showErr('Please enter SQL');
-        return;
-      }
+      if (!sql) return showErr('Enter SQL');
 
-      document.getElementById('spin').style.display = 'inline-block';
-      document.getElementById('runBtn').disabled = true;
+      const spin = document.getElementById('spin');
+      const btn = document.getElementById('runBtn');
+      spin.style.display = 'inline-block';
+      btn.disabled = true;
 
-      setTimeout(() => {
+      // Use requestAnimationFrame for non-blocking UI
+      requestAnimationFrame(() => {
         try {
           const sp = mod._malloc(mod.lengthBytesUTF8(sql) + 1);
           mod.stringToUTF8(sql, sp, mod.lengthBytesUTF8(sql) + 1);
 
-          let results = [];
-          const cb = mod.addFunction((rowCount, cols, vals) => {
-            const row = [];
-            for (let i = 0; i < cols; i++) {
-              const valPtr = HEAP32[((vals) + (i * 4)) >> 2];
-              row.push(valPtr ? UTF8ToString(valPtr) : 'NULL');
-            }
-            results.push(row);
-            return 0;
-          }, 'iiii');
+          const results = [];
+
+          // Reuse callback function
+          if (!cbPtr) {
+            cbPtr = mod.addFunction((n, cols, vals) => {
+              const row = [];
+              for (let i = 0; i < cols; i++) {
+                const vp = HEAP32[(vals + i * 4) >> 2];
+                row.push(vp ? UTF8ToString(vp) : 'NULL');
+              }
+              results.push(row);
+              return 0;
+            }, 'iiii');
+          }
 
           const ep = mod._malloc(4);
-          const rc = mod._sqlite3_exec(db, sp, cb, 0, ep);
-          mod.removeFunction(cb);
+          const rc = mod._sqlite3_exec(db, sp, cbPtr, 0, ep);
           mod._free(sp);
 
           if (rc) {
             const em = mod.HEAP32[ep >> 2];
             showErr(em ? mod.UTF8ToString(em) : 'Error ' + rc);
           } else {
-            showResults(results, sql);
+            showRes(results);
           }
           mod._free(ep);
         } catch(e) {
-          showErr('Error: ' + e.message);
+          showErr(e.message);
         }
 
-        document.getElementById('spin').style.display = 'none';
-        document.getElementById('runBtn').disabled = false;
-      }, 10);
+        spin.style.display = 'none';
+        btn.disabled = false;
+      });
     }
 
-    function showResults(results, sql) {
-      if (results.length === 0) {
-        document.getElementById('out').innerHTML = '<div class="ok">✓ Executed successfully (no results)</div><div class="meta">Query completed in ' + results.length + ' rows</div>';
+    function showRes(results) {
+      if (!results.length) {
+        document.getElementById('out').innerHTML = '<div class="ok">✓ Done</div>';
         return;
       }
 
-      let html = '<div class="ok">✓ Query Results</div>';
+      let h = '<div class="ok">✓ Results</div>';
 
       if (results.length === 1 && results[0].length === 1) {
-        html += '<div style="font-size:24px;font-weight:bold;margin:10px 0">' + results[0][0] + '</div>';
+        h += '<div style="font-size:20px;font-weight:bold;margin:8px 0">' + esc(results[0][0]) + '</div>';
       } else {
-        html += '<table><thead><tr>';
-        results[0].forEach((h, i) => {
-          html += '<th>Column ' + (i + 1) + '</th>';
+        h += '<table><tr>';
+        results[0].forEach((_, i) => h += '<th>Col ' + (i + 1) + '</th>');
+        h += '</tr>';
+        results.forEach(r => {
+          h += '<tr>';
+          r.forEach(c => h += '<td>' + esc(c) + '</td>');
+          h += '</tr>';
         });
-        html += '</tr></thead><tbody>';
-
-        results.forEach(row => {
-          html += '<tr>';
-          row.forEach(cell => {
-            html += '<td>' + esc(cell) + '</td>';
-          });
-          html += '</tr>';
-        });
-
-        html += '</tbody></table>';
-        html += '<div class="meta">' + results.length + ' row(s) returned</div>';
+        h += '</table><div class="meta">' + results.length + ' rows</div>';
       }
-
-      document.getElementById('out').innerHTML = html;
+      document.getElementById('out').innerHTML = h;
     }
 
-    function showErr(msg) {
-      document.getElementById('out').innerHTML = '<div class="err">⚠ ' + esc(msg) + '</div>';
+    function showErr(m) {
+      document.getElementById('out').innerHTML = '<div class="err">⚠ ' + esc(m) + '</div>';
     }
 
     function esc(s) {
@@ -190,15 +171,7 @@ SELECT * FROM users;</textarea>
 
     function clr() {
       document.getElementById('sql').value = '';
-      document.getElementById('out').innerHTML = '<div style="color:#999;text-align:center;padding:20px">Cleared</div>';
-    }
-
-    function example() {
-      document.getElementById('sql').value = `CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-INSERT INTO users VALUES(1, 'Alice', 30);
-INSERT INTO users VALUES(2, 'Bob', 25);
-INSERT INTO users VALUES(3, 'Charlie', 35);
-SELECT * FROM users;`;
+      document.getElementById('out').innerHTML = '<div style="color:#adb5bd;text-align:center;padding:15px">Cleared</div>';
     }
 
     document.addEventListener('keydown', e => {
