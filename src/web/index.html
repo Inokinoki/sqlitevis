@@ -3,59 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SQLite Web</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font:12px system-ui;background:#f8f9fa;padding:12px;max-width:650px;margin:0 auto;font-family:-apple-system,system-ui,sans-serif}
-    h1{color:#2563eb;font-size:18px;margin-bottom:4px}
-    .ver{font-size:10px;color:#6c757d;margin-bottom:10px}
-    .ver a{color:#2563eb;text-decoration:none;margin-right:6px}
-    .ver a:hover{text-decoration:underline}
-    textarea{width:100%;height:90px;font:11px monospace;padding:6px;border:1px solid #dee2e6;background:#fff;margin-bottom:6px;resize:vertical;border-radius:3px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;line-height:1.3}
-    .btns{margin-bottom:8px}
-    button{padding:6px 12px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:5px;font:12px system-ui;border-radius:3px}
-    button:hover{background:#1d4ed8}
-    button:disabled{background:#adb5bd;cursor:not-allowed}
-    button.sec{background:#e9ecef;color:#212529}
-    button.sec:hover{background:#dee2e6}
-    #out{background:#fff;border:1px solid #dee2e6;padding:8px;min-height:40px;margin-top:6px;border-radius:3px;font:11px system-ui}
-    .err{color:#dc3545;background:#f8d7da;padding:8px;border-radius:3px;border:1px solid #f5c6cb}
-    .ok{color:#198754}
-    .load{color:#6c757d;font-style:italic}
-    table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
-    th,td{padding:6px;text-align:left;border-bottom:1px solid #dee2e6}
-    th{background:#f8f9fa;font-weight:600;color:#212529}
-    tr:hover{background:#f8f9fa}
-    .meta{color:#6c757d;font-size:10px;margin-top:6px}
-    @keyframes s{to{transform:rotate(360deg)}}
-    .spin{display:inline-block;width:10px;height:10px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:4px;vertical-align:middle}
-  </style>
+  <title>SQLite</title>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f8f9fa;padding:10px;max-width:600px;margin:0 auto}h1{color:#2563eb;font-size:16px;margin-bottom:3px}.ver{font-size:9px;color:#6c757d;margin-bottom:8px}.ver a{color:#2563eb;text-decoration:none;margin-right:4px}.ver a:hover{text-decoration:underline}textarea{width:100%;height:80px;font:11px monospace;padding:5px;border:1px solid #dee2e6;background:#fff;margin-bottom:5px;resize:vertical;border-radius:2px;font-family:'SF Mono',Monaco,monospace;line-height:1.2}.btns{margin-bottom:6px}button{padding:5px 10px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:4px;font:11px system-ui;border-radius:2px}button:hover{background:#1d4ed8}button:disabled{background:#adb5bd;cursor:not-allowed}button.sec{background:#e9ecef;color:#212529}button.sec:hover{background:#dee2e6}#out{background:#fff;border:1px solid #dee2e6;padding:6px;min-height:30px;margin-top:5px;border-radius:2px;font:10px monospace;white-space:pre-wrap;word-break:break-all;font-family:'SF Mono',Monaco,monospace;line-height:1.3}.err{color:#dc3545}.ok{color:#198754}.load{color:#6c757d;font-style:italic}@keyframes s{to{transform:rotate(360deg)}}.spin{display:inline-block;width:8px;height:8px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:3px;vertical-align:middle}</style>
 </head>
 <body>
-  <h1>SQLite Web</h1>
-  <div class="ver">
-    <a href="minimal.html">⚡ Minimal</a> |
-    <a href="index-turbo.html">Turbo</a> |
-    <a href="index-fast.html">Fast</a> |
-    <a href="index-full.html">Full</a>
-  </div>
-
-  <textarea id="sql" spellcheck="false">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-INSERT INTO users VALUES(1, 'Alice', 30);
-INSERT INTO users VALUES(2, 'Bob', 25);
-SELECT * FROM users;</textarea>
-
-  <div class="btns">
-    <button id="runBtn" onclick="run()" disabled><span class="spin" style="display:none" id="spin"></span>Run (Ctrl+Enter)</button>
-    <button class="sec" onclick="clr()">Clear</button>
-  </div>
-
+  <h1>SQLite</h1>
+  <div class="ver"><a href="minimal.html">⚡</a> <a href="index-turbo.html">Turbo</a> <a href="index-fast.html">Fast</a> <a href="index-full.html">Full</a></div>
+  <textarea id="sql" spellcheck="false">CREATE TABLE u(id INTEGER PRIMARY KEY, n TEXT, a INTEGER);
+INSERT INTO u VALUES(1, 'Alice', 30);
+INSERT INTO u VALUES(2, 'Bob', 25);
+SELECT * FROM u;</textarea>
+  <div class="btns"><button id="runBtn" onclick="run()" disabled><span class="spin" style="display:none" id="spin"></span>Run</button><button class="sec" onclick="clr()">Clear</button></div>
   <div id="out" class="load">Loading...</div>
-
   <script>
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
     let db, mod, ready = false, cbPtr = 0;
-
     (function(){
       const s = document.createElement('script');
       s.src = 'build/sqlite3.js';
@@ -63,10 +25,10 @@ SELECT * FROM users;</textarea>
       s.onload = init;
       document.head.appendChild(s);
     })();
-
-    async function init() {
+    async function init(){
       if (typeof createSQLiteModule === 'undefined') {
-        showErr('Module not found');
+        document.getElementById('out').textContent = 'Module not found';
+        document.getElementById('out').className = 'err';
         return;
       }
       try {
@@ -79,32 +41,31 @@ SELECT * FROM users;</textarea>
         mod._free(p);
         mod._free(pp);
         ready = true;
-        document.getElementById('out').innerHTML = '<div class="ok">✓ Ready</div>';
+        document.getElementById('out').textContent = '✓ Ready';
+        document.getElementById('out').className = 'ok';
         document.getElementById('runBtn').disabled = false;
       } catch(e) {
-        showErr(e.message);
+        document.getElementById('out').textContent = 'Error: ' + e.message;
+        document.getElementById('out').className = 'err';
       }
     }
-
-    function run() {
+    function run(){
       if (!ready) return;
       const sql = document.getElementById('sql').value.trim();
-      if (!sql) return showErr('Enter SQL');
-
+      if (!sql) {
+        document.getElementById('out').textContent = 'Enter SQL';
+        document.getElementById('out').className = 'err';
+        return;
+      }
       const spin = document.getElementById('spin');
       const btn = document.getElementById('runBtn');
       spin.style.display = 'inline-block';
       btn.disabled = true;
-
-      // Use requestAnimationFrame for non-blocking UI
       requestAnimationFrame(() => {
         try {
           const sp = mod._malloc(mod.lengthBytesUTF8(sql) + 1);
           mod.stringToUTF8(sql, sp, mod.lengthBytesUTF8(sql) + 1);
-
           const results = [];
-
-          // Reuse callback function
           if (!cbPtr) {
             cbPtr = mod.addFunction((n, cols, vals) => {
               const row = [];
@@ -116,64 +77,44 @@ SELECT * FROM users;</textarea>
               return 0;
             }, 'iiii');
           }
-
           const ep = mod._malloc(4);
           const rc = mod._sqlite3_exec(db, sp, cbPtr, 0, ep);
           mod._free(sp);
-
           if (rc) {
             const em = mod.HEAP32[ep >> 2];
-            showErr(em ? mod.UTF8ToString(em) : 'Error ' + rc);
+            document.getElementById('out').textContent = 'Error: ' + (em ? mod.UTF8ToString(em) : 'Code ' + rc);
+            document.getElementById('out').className = 'err';
           } else {
             showRes(results);
           }
           mod._free(ep);
         } catch(e) {
-          showErr(e.message);
+          document.getElementById('out').textContent = 'Error: ' + e.message;
+          document.getElementById('out').className = 'err';
         }
-
         spin.style.display = 'none';
         btn.disabled = false;
       });
     }
-
-    function showRes(results) {
+    function showRes(results){
       if (!results.length) {
-        document.getElementById('out').innerHTML = '<div class="ok">✓ Done</div>';
+        document.getElementById('out').textContent = '✓ Done';
+        document.getElementById('out').className = 'ok';
         return;
       }
-
-      let h = '<div class="ok">✓ Results</div>';
-
-      if (results.length === 1 && results[0].length === 1) {
-        h += '<div style="font-size:20px;font-weight:bold;margin:8px 0">' + esc(results[0][0]) + '</div>';
-      } else {
-        h += '<table><tr>';
-        results[0].forEach((_, i) => h += '<th>Col ' + (i + 1) + '</th>');
-        h += '</tr>';
-        results.forEach(r => {
-          h += '<tr>';
-          r.forEach(c => h += '<td>' + esc(c) + '</td>');
-          h += '</tr>';
-        });
-        h += '</table><div class="meta">' + results.length + ' rows</div>';
-      }
-      document.getElementById('out').innerHTML = h;
+      let txt = '';
+      results.forEach(r => {
+        txt += r.join(' | ') + '\n';
+      });
+      txt += '\n' + results.length + ' rows';
+      document.getElementById('out').textContent = txt;
+      document.getElementById('out').className = 'ok';
     }
-
-    function showErr(m) {
-      document.getElementById('out').innerHTML = '<div class="err">⚠ ' + esc(m) + '</div>';
-    }
-
-    function esc(s) {
-      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    function clr() {
+    function clr(){
       document.getElementById('sql').value = '';
-      document.getElementById('out').innerHTML = '<div style="color:#adb5bd;text-align:center;padding:15px">Cleared</div>';
+      document.getElementById('out').textContent = '';
+      document.getElementById('out').className = '';
     }
-
     document.addEventListener('keydown', e => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
