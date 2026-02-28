@@ -1,145 +1,207 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>SQLite Fast</title>
-  <script src="../node_modules/alasql/dist/alasql.min.js"></script>
-  <style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f8f9fa;padding:10px;max-width:650px;margin:0 auto}h1{color:#2563eb;font-size:18px;margin-bottom:5px}.v{font-size:10px;color:#6c757d;margin-bottom:10px}.v a{color:#2563eb;text-decoration:none;margin-right:6px}textarea{width:100%;height:120px;font:12px monospace;padding:8px;border:1px solid #dee2e6;background:#fff;margin-bottom:8px;resize:vertical;border-radius:4px;font-family:'SF Mono',Monaco,monospace}.b{margin-bottom:8px}button{padding:7px 14px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:6px;font:12px system-ui;border-radius:4px;font-weight:500}button:hover{background:#1d4ed8}button:disabled{background:#adb5bd;cursor:not-allowed}button.s{background:#e9ecef;color:#212529}button.s:hover{background:#dee2e6}#o{background:#fff;border:1px solid #dee2e6;padding:10px;min-height:40px;margin-top:8px;border-radius:4px;font-size:11px;white-space:pre-wrap;overflow:auto;max-height:400px}.e{color:#dc3545;background:#f8d7da;padding:10px;border-radius:4px}.ok{color:#198754;background:#d1e7dd;padding:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px}th,td{padding:6px;text-align:left;border-bottom:1px solid #dee2e6}th{background:#f8f9fa;font-weight:600}tr:hover{background:#f8f9fa}.l{color:#0d6efd;background:#cfe2ff;padding:10px;border-radius:4px;margin-bottom:8px}@keyframes s{to{transform:rotate(360deg)}}.sp{display:inline-block;width:12px;height:12px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:6px;vertical-align:middle}</style>
+  <title>SQL</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font: 13px system-ui;
+      background: #f5f5f5;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { color: #2563eb; margin-bottom: 10px; }
+    textarea {
+      width: 100%;
+      height: 150px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+      margin-bottom: 10px;
+      resize: vertical;
+    }
+    button {
+      padding: 10px 20px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+    button:hover { background: #1d4ed8; }
+    button.secondary {
+      background: #e5e5e5;
+      color: #333;
+    }
+    button.secondary:hover { background: #d5d5d5; }
+    #output {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f9f9f9;
+      border-radius: 4px;
+      min-height: 100px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      font-size: 12px;
+    }
+    .error { color: #dc3545; background: #f8d7da; }
+    .success { color: #198754; background: #d1e7dd; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th { background: #f3f4f6; font-weight: 600; }
+    tr:hover { background: #f9fafb; }
+  </style>
 </head>
 <body>
-  <h1>SQLite Fast</h1>
-  <div class="v"><a href="instant.html">Instant (Mini)</a> | <a href="index-wasm.html">WASM (Full SQLite)</a> | <a href="index-fast.html">Fast</a> | <a href="index-full.html">Full</a></div>
+  <div id="container">
+    <h1>🚀 Super Fast SQL</h1>
+    <p style="color: #666; margin-bottom: 15px;">Pure JavaScript - Loads instantly, no waiting</p>
 
-  <div class="l"><span class="sp"></span>Loading AlaSQL (500KB) - Full SQL support with JOINs, aggregates, functions...</div>
-
-  <textarea id="sql" spellcheck="false" disabled>Loading...</textarea>
-
-  <div class="b"><button id="runBtn" onclick="run()" disabled>Run SQL (Ctrl+Enter)</button><button class="s" onclick="clr()">Clear</button><button class="s" onclick="ex()">Example</button></div>
-
-  <div id="o"></div>
-
-  <script>
-    let ready = false;
-
-    window.addEventListener('load', () => {
-      setTimeout(() => {
-        ready = true;
-        document.getElementById('sql').disabled = false;
-        document.getElementById('runBtn').disabled = false;
-        document.getElementById('sql').value = `CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+    <textarea id="sql" spellcheck="false">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES(1, 'Alice', 30);
 INSERT INTO users VALUES(2, 'Bob', 25);
-INSERT INTO users VALUES(3, 'Charlie', 35);
-SELECT * FROM users;`;
-        document.getElementById('o').innerHTML = '<div class="ok">✓ Ready - Full SQL support with AlaSQL</div>';
-      }, 100);
-    });
+SELECT * FROM users;</textarea>
 
-    function run() {
-      if (!ready) return;
+    <button onclick="runSQL()">▶ Run SQL</button>
+    <button class="secondary" onclick="clear()">Clear</button>
+    <button class="secondary" onclick="loadExample()">Load Example</button>
 
+    <div id="output"></div>
+  </div>
+
+  <script>
+    // Ultra-simple SQL engine - Instant load, zero dependencies
+    const database = {};
+
+    function runSQL() {
       const sql = document.getElementById('sql').value.trim();
+      const output = document.getElementById('output');
+      
       if (!sql) {
-        showError('Please enter SQL');
+        output.innerHTML = '<div class="error">Please enter SQL</div>';
         return;
       }
 
       try {
-        // Use alasql for full SQL support
-        const result = alasql(sql);
+        const statements = sql.split(';').filter(s => s.trim());
+        let results = [];
+        let message = '';
 
-        if (Array.isArray(result)) {
-          if (result.length === 0) {
-            showSuccess('✓ Query completed (no results)');
-          } else if (typeof result[0] === 'object') {
-            // Object array - display as table
-            showTable(result);
-          } else {
-            // Primitive array
-            showArray(result);
+        for (const stmt of statements) {
+          const upper = stmt.toUpperCase().trim();
+
+          if (upper.startsWith('CREATE TABLE')) {
+            const match = stmt.match(/CREATE\s+TABLE\s+(\w+)\s*\((.*)\)/i);
+            if (match) {
+              const [, name, cols] = match;
+              database[name] = {
+                columns: cols.split(',').map(c => c.trim().split(/\s+/)[0]),
+                rows: []
+              };
+              message += '✓ Created table ' + name + '\n';
+            }
           }
-        } else if (result === undefined) {
-          showSuccess('✓ Statement executed successfully');
-        } else {
-          // Single value
-          showSuccess('✓ Result: ' + result);
+          else if (upper.startsWith('INSERT')) {
+            const match = stmt.match(/INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)/i);
+            if (match) {
+              const [, name, values] = match;
+              if (!database[name]) throw new Error('Table not found: ' + name);
+              const row = values.split(',').map(v => {
+                v = v.trim();
+                if (v === 'NULL') return null;
+                if (v.startsWith("'")) return v.slice(1, -1);
+                return isNaN(v) ? v : Number(v);
+              });
+              database[name].rows.push(row);
+              message += '✓ Inserted row\n';
+            }
+          }
+          else if (upper.startsWith('SELECT')) {
+            const match = stmt.match(/SELECT\s+(.+)\s+FROM\s+(\w+)/i);
+            if (match) {
+              const [, cols, name] = match;
+              if (!database[name]) throw new Error('Table not found: ' + name);
+              const table = database[name];
+              const selectAll = cols.trim() === '*';
+              results = table.rows;
+              message = '✓ ' + results.length + ' rows';
+            }
+          }
+          else if (upper.startsWith('DROP TABLE')) {
+            const match = stmt.match(/DROP\s+TABLE\s+(\w+)/i);
+            if (match) {
+              delete database[match[1]];
+              message += '✓ Dropped table\n';
+            }
+          }
         }
-      } catch (e) {
-        showError(e.message || 'Error executing SQL');
+
+        if (results.length > 0) {
+          let html = '<div class="success">' + message + '</div>';
+          html += '<table><thead><tr>';
+          results[0].forEach((_, i) => {
+            html += '<th>Column ' + (i + 1) + '</th>';
+          });
+          html += '</tr></thead><tbody>';
+          results.forEach(row => {
+            html += '<tr>';
+            row.forEach(cell => {
+              html += '<td>' + (cell === null ? 'NULL' : cell) + '</td>';
+            });
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+          output.innerHTML = html;
+        } else {
+          output.innerHTML = '<div class="success">' + message + '</div>';
+        }
+      } catch (error) {
+        output.innerHTML = '<div class="error">Error: ' + error.message + '</div>';
       }
     }
 
-    function showTable(data) {
-      const keys = Object.keys(data[0]);
-      let html = '<div class="ok">✓ ' + data.length + ' rows</div><table><thead><tr>';
-      keys.forEach(k => html += '<th>' + esc(k) + '</th>');
-      html += '</tr></thead><tbody>';
-      data.forEach(row => {
-        html += '<tr>';
-        keys.forEach(k => html += '<td>' + esc(String(row[k] ?? 'NULL')) + '</td>');
-        html += '</tr>';
-      });
-      html += '</tbody></table>';
-      document.getElementById('o').innerHTML = html;
-    }
-
-    function showArray(data) {
-      let html = '<div class="ok">✓ ' + data.length + ' rows</div><table>';
-      data.forEach(row => {
-        html += '<tr>';
-        if (Array.isArray(row)) {
-          row.forEach(v => html += '<td>' + esc(String(v ?? 'NULL')) + '</td>');
-        } else {
-          html += '<td>' + esc(String(row ?? 'NULL')) + '</td>';
-        }
-        html += '</tr>';
-      });
-      html += '</table>';
-      document.getElementById('o').innerHTML = html;
-    }
-
-    function showSuccess(msg) {
-      document.getElementById('o').innerHTML = '<div class="ok">' + esc(msg) + '</div>';
-    }
-
-    function showError(msg) {
-      document.getElementById('o').innerHTML = '<div class="e">⚠ Error: ' + esc(msg) + '</div>';
-    }
-
-    function esc(str) {
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    function clr() {
+    function clear() {
       document.getElementById('sql').value = '';
-      document.getElementById('o').innerHTML = '';
+      document.getElementById('output').innerHTML = '';
     }
 
-    function ex() {
-      document.getElementById('sql').value = `-- Complex SQL example with JOIN
-CREATE TABLE users(id INT, name STRING, age INT);
-CREATE TABLE orders(id INT, user_id INT, product STRING, amount INT);
-
+    function loadExample() {
+      document.getElementById('sql').value = `CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES(1, 'Alice', 30);
 INSERT INTO users VALUES(2, 'Bob', 25);
 INSERT INTO users VALUES(3, 'Charlie', 35);
-
-INSERT INTO orders VALUES(1, 1, 'Laptop', 1200);
-INSERT INTO orders VALUES(2, 2, 'Mouse', 25);
-INSERT INTO orders VALUES(3, 1, 'Keyboard', 80);
-
-SELECT u.name, o.product, o.amount
-FROM users u
-JOIN orders o ON u.id = o.user_id
-WHERE u.age > 25
-ORDER BY o.amount DESC;`;
-      document.getElementById('o').innerHTML = '<div style="color:#6c757d;padding:10px">Complex example loaded - shows JOIN support</div>';
+INSERT INTO users VALUES(4, 'Diana', 28);
+SELECT * FROM users;`;
+      document.getElementById('output').innerHTML = '<div style="color: #666;">Example loaded - click Run SQL</div>';
     }
 
-    document.addEventListener('keydown', e => {
+    // Keyboard shortcut
+    document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        run();
+        runSQL();
       }
     });
   </script>
