@@ -1,80 +1,147 @@
-<!doctype html><html><head><meta charset=UTF-8><title>SQL</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f8f9fa;padding:8px;max-width:600px;margin:0 auto}h1{color:#2563eb;font-size:16px;margin-bottom:4px}.v{font-size:9px;color:#6c757d;margin-bottom:6px}.v a{color:#2563eb;text-decoration:none;margin-right:4px}textarea{width:100%;height:100px;font:11px monospace;padding:6px;border:1px solid #dee2e6;background:#fff;margin-bottom:6px;resize:vertical;border-radius:3px;font-family:monospace}.b{margin-bottom:6px}button{padding:6px 12px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:4px;font:11px system-ui;border-radius:3px}button:hover{background:#1d4ed8}button.s{background:#e9ecef;color:#212529}button.s:hover{background:#dee2e6}#o{background:#fff;border:1px solid #dee2e6;padding:6px;min-height:30px;margin-top:6px;border-radius:3px;font-size:10px;white-space:pre-wrap}.e{color:#dc3545;background:#f8d7da;padding:6px;border-radius:3px}.ok{color:#198754;background:#d1e7dd;padding:6px;border-radius:3px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{padding:4px;text-align:left;border-bottom:1px solid #dee2e6}th{background:#f8f9fa}tr:hover{background:#f8f9fa}.t{background:#cfe2ff;border:1px solid #b6d4fe;padding:6px;border-radius:3px;margin-bottom:6px;font-size:10px}</style>
-</head><body>
-<h1>SQLite</h1>
-<div class=v><a href=index-wasm.html>WASM (Full SQLite)</a> | <a href=index-fast.html>Fast</a> | <a href=index-full.html>Full</a></div>
-<div class=t>⚡ <strong>Instant Mode</strong> - Pure JavaScript, loads instantly</div>
-<textarea id=sql spellcheck=false>CREATE TABLE u(id INTEGER PRIMARY KEY, n TEXT, a INTEGER);
-INSERT INTO u VALUES(1, 'Alice', 30);
-INSERT INTO u VALUES(2, 'Bob', 25);
-SELECT * FROM u;</textarea>
-<div class=b><button onclick=r()>Run (Ctrl+Enter)</button><button class=s onclick=c()>Clear</button><button class=s onclick=e()>Example</button></div>
-<div id=o></div>
-<script>
-const DB={tables:{}};
-function SQL(s){
-  const stmts=s.split(';').map(x=>x.trim()).filter(x=>x);
-  let out=[];
-  for(const stmt of stmts){
-    try{
-      const u=stmt.toUpperCase();
-      if(u.startsWith('CREATE TABLE')){
-        const m=stmt.match(/CREATE TABLE (\w+) \((.*)\)/i);
-        if(!m)throw E('Invalid CREATE');
-        const [_,n,d]=m;
-        DB.tables[n]={cols:d.split(',').map(c=>{const p=c.trim().split(/\s+/);return{n:p[0],t:p[1]||'TEXT'}}),rows:[]};
-        out.push('✓ Created '+n)
-      }else if(u.startsWith('DROP TABLE')){
-        const m=stmt.match(/DROP TABLE (\w+)/i);
-        if(!m)throw E('Invalid DROP');
-        delete DB.tables[m[1]];
-        out.push('✓ Dropped')
-      }else if(u.startsWith('INSERT')){
-        const m=stmt.match(/INSERT INTO (\w+) VALUES \((.*)\)/i);
-        if(!m)throw E('Invalid INSERT');
-        const [_,n,v]=m;
-        if(!DB.tables[n])throw E('Table not found');
-        DB.tables[n].rows.push(v.split(',').map(x=>{const t=x.trim();return t==="'?null:null:t.startsWith("'")?t.slice(1,-1):isNaN(t)?t:Number(t)}));
-        out.push('✓ Inserted')
-      }else if(u.startsWith('SELECT')){
-        const m=stmt.match(/SELECT (.+) FROM (\w+)/i);
-        if(!m)throw E('Invalid SELECT');
-        const [_,cs,n]=m;
-        if(!DB.tables[n])throw E('Table not found');
-        const tbl=DB.tables[n];
-        const all=cs.trim()==='*';
-        const idx=all?tbl.cols.map((_,i)=>i):cs.split(',').map(c=>{const i=tbl.cols.findIndex(x=>x.n.toLowerCase()===c.trim().toLowerCase());if(i<0)throw E('Column not found');return i});
-        const res=tbl.rows.map(r=>idx.map(i=>r[i]));
-        R(res);
-        return
-      }else{
-        throw E('Unsupported: '+stmt.split(' ')[0])
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SQLite Fast</title>
+  <script src="../node_modules/alasql/dist/alasql.min.js"></script>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f8f9fa;padding:10px;max-width:650px;margin:0 auto}h1{color:#2563eb;font-size:18px;margin-bottom:5px}.v{font-size:10px;color:#6c757d;margin-bottom:10px}.v a{color:#2563eb;text-decoration:none;margin-right:6px}textarea{width:100%;height:120px;font:12px monospace;padding:8px;border:1px solid #dee2e6;background:#fff;margin-bottom:8px;resize:vertical;border-radius:4px;font-family:'SF Mono',Monaco,monospace}.b{margin-bottom:8px}button{padding:7px 14px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:6px;font:12px system-ui;border-radius:4px;font-weight:500}button:hover{background:#1d4ed8}button:disabled{background:#adb5bd;cursor:not-allowed}button.s{background:#e9ecef;color:#212529}button.s:hover{background:#dee2e6}#o{background:#fff;border:1px solid #dee2e6;padding:10px;min-height:40px;margin-top:8px;border-radius:4px;font-size:11px;white-space:pre-wrap;overflow:auto;max-height:400px}.e{color:#dc3545;background:#f8d7da;padding:10px;border-radius:4px}.ok{color:#198754;background:#d1e7dd;padding:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px}th,td{padding:6px;text-align:left;border-bottom:1px solid #dee2e6}th{background:#f8f9fa;font-weight:600}tr:hover{background:#f8f9fa}.l{color:#0d6efd;background:#cfe2ff;padding:10px;border-radius:4px;margin-bottom:8px}@keyframes s{to{transform:rotate(360deg)}}.sp{display:inline-block;width:12px;height:12px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:6px;vertical-align:middle}</style>
+</head>
+<body>
+  <h1>SQLite Fast</h1>
+  <div class="v"><a href="instant.html">Instant (Mini)</a> | <a href="index-wasm.html">WASM (Full SQLite)</a> | <a href="index-fast.html">Fast</a> | <a href="index-full.html">Full</a></div>
+
+  <div class="l"><span class="sp"></span>Loading AlaSQL (500KB) - Full SQL support with JOINs, aggregates, functions...</div>
+
+  <textarea id="sql" spellcheck="false" disabled>Loading...</textarea>
+
+  <div class="b"><button id="runBtn" onclick="run()" disabled>Run SQL (Ctrl+Enter)</button><button class="s" onclick="clr()">Clear</button><button class="s" onclick="ex()">Example</button></div>
+
+  <div id="o"></div>
+
+  <script>
+    let ready = false;
+
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        ready = true;
+        document.getElementById('sql').disabled = false;
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('sql').value = `CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Charlie', 35);
+SELECT * FROM users;`;
+        document.getElementById('o').innerHTML = '<div class="ok">✓ Ready - Full SQL support with AlaSQL</div>';
+      }, 100);
+    });
+
+    function run() {
+      if (!ready) return;
+
+      const sql = document.getElementById('sql').value.trim();
+      if (!sql) {
+        showError('Please enter SQL');
+        return;
       }
-    }catch(e){
-      showErr(e.message);
-      return
+
+      try {
+        // Use alasql for full SQL support
+        const result = alasql(sql);
+
+        if (Array.isArray(result)) {
+          if (result.length === 0) {
+            showSuccess('✓ Query completed (no results)');
+          } else if (typeof result[0] === 'object') {
+            // Object array - display as table
+            showTable(result);
+          } else {
+            // Primitive array
+            showArray(result);
+          }
+        } else if (result === undefined) {
+          showSuccess('✓ Statement executed successfully');
+        } else {
+          // Single value
+          showSuccess('✓ Result: ' + result);
+        }
+      } catch (e) {
+        showError(e.message || 'Error executing SQL');
+      }
     }
-  }
-  show(out.join('\n'))
-}
-function R(res){
-  let h='<div class=ok>✓ '+res.length+' rows</div><table><tr>';
-  for(let i=0;i<res[0].length;i++)h+='<th>Col '+(i+1)+'</th>';
-  h+='</tr>';
-  for(const r of res){
-    h+='<tr>';
-    for(const c of r)h+='<td>'+(c===null?'<em>NULL</em>':esc(String(c)))+'</td>';
-    h+='</tr>'
-  }
-  h+='</table>';
-  document.getElementById('o').innerHTML=h
-}
-function E(m){return new Error(m)}
-function showErr(m){document.getElementById('o').innerHTML='<div class=e>⚠ '+esc(m)+'</div>'}
-function show(m){document.getElementById('o').innerHTML='<div class=ok>'+esc(m)+'</div>'}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function r(){SQL(document.getElementById('sql').value)}
-function c(){document.getElementById('sql').value='';document.getElementById('o').innerHTML=''}
-function e(){document.getElementById('sql').value=`CREATE TABLE u(id INTEGER PRIMARY KEY, n TEXT, a INTEGER);\nINSERT INTO u VALUES(1, 'Alice', 30);\nINSERT INTO u VALUES(2, 'Bob', 25);\nINSERT INTO u VALUES(3, 'Charlie', 35);\nINSERT INTO u VALUES(4, 'Diana', 28);\nSELECT * FROM u;`;document.getElementById('o').innerHTML='<div style=color:#6c757d>Example loaded</div>'}
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();r()}});
-</script></body></html>
+
+    function showTable(data) {
+      const keys = Object.keys(data[0]);
+      let html = '<div class="ok">✓ ' + data.length + ' rows</div><table><thead><tr>';
+      keys.forEach(k => html += '<th>' + esc(k) + '</th>');
+      html += '</tr></thead><tbody>';
+      data.forEach(row => {
+        html += '<tr>';
+        keys.forEach(k => html += '<td>' + esc(String(row[k] ?? 'NULL')) + '</td>');
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('o').innerHTML = html;
+    }
+
+    function showArray(data) {
+      let html = '<div class="ok">✓ ' + data.length + ' rows</div><table>';
+      data.forEach(row => {
+        html += '<tr>';
+        if (Array.isArray(row)) {
+          row.forEach(v => html += '<td>' + esc(String(v ?? 'NULL')) + '</td>');
+        } else {
+          html += '<td>' + esc(String(row ?? 'NULL')) + '</td>';
+        }
+        html += '</tr>';
+      });
+      html += '</table>';
+      document.getElementById('o').innerHTML = html;
+    }
+
+    function showSuccess(msg) {
+      document.getElementById('o').innerHTML = '<div class="ok">' + esc(msg) + '</div>';
+    }
+
+    function showError(msg) {
+      document.getElementById('o').innerHTML = '<div class="e">⚠ Error: ' + esc(msg) + '</div>';
+    }
+
+    function esc(str) {
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function clr() {
+      document.getElementById('sql').value = '';
+      document.getElementById('o').innerHTML = '';
+    }
+
+    function ex() {
+      document.getElementById('sql').value = `-- Complex SQL example with JOIN
+CREATE TABLE users(id INT, name STRING, age INT);
+CREATE TABLE orders(id INT, user_id INT, product STRING, amount INT);
+
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Charlie', 35);
+
+INSERT INTO orders VALUES(1, 1, 'Laptop', 1200);
+INSERT INTO orders VALUES(2, 2, 'Mouse', 25);
+INSERT INTO orders VALUES(3, 1, 'Keyboard', 80);
+
+SELECT u.name, o.product, o.amount
+FROM users u
+JOIN orders o ON u.id = o.user_id
+WHERE u.age > 25
+ORDER BY o.amount DESC;`;
+      document.getElementById('o').innerHTML = '<div style="color:#6c757d;padding:10px">Complex example loaded - shows JOIN support</div>';
+    }
+
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        run();
+      }
+    });
+  </script>
+</body>
+</html>
