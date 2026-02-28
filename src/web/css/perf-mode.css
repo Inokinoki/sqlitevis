@@ -1,0 +1,21 @@
+/* Ultra Performance Mode - DISABLE all animations and transitions */
+/* Add this class to body via console: document.body.classList.add('perf-mode') */
+
+body.perf-mode *,
+body.perf-mode *::before,
+body.perf-mode *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+}
+
+body.perf-mode .spinner {
+    /* Keep spinner animation even in perf mode */
+    animation: spin 1s linear infinite !important;
+}
+
+body.perf-mode #visualization-canvas {
+    /* Optimize canvas for performance */
+    image-rendering: pixelated !important;
+}

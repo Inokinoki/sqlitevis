@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite Vis Manual Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        h1 { color: #4ec9b0; }
+        .test-section { margin: 20px 0; padding: 15px; background: #252526; border: 1px solid #3e3e42; }
+        .success { color: #4ec9b0; }
+        .error { color: #f48771; }
+        .info { color: #569cd6; }
+        pre { background: #1e1e1e; padding: 10px; overflow-x: auto; }
+        button { background: #0e639c; color: white; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; }
+        button:hover { background: #1177bb; }
+        #log { max-height: 400px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>SQLite Visualization Manual Test</h1>
+
+    <div class="test-section">
+        <h2>Test 1: VDBE Events</h2>
+        <p>Verifies VDBE execution events are captured</p>
+        <button onclick="testVdbe()">Test VDBE Events</button>
+        <pre id="vdbe-result">Click button to test</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: SQL Parsing Events</h2>
+        <p>Verifies SQL parsing and tokenization events</p>
+        <button onclick="testParsing()">Test Parsing Events</button>
+        <pre id="parse-result">Click button to test</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: B-Tree Page Events</h2>
+        <p>Verifies B-tree page allocation and node events</p>
+        <button onclick="testBtree()">Test B-Tree Events</button>
+        <pre id="btree-result">Click button to test</pre>
+    </div>
+
+    <div class="test-section">
+        <h2>Event Log</h2>
+        <button onclick="clearLog()">Clear Log</button>
+        <pre id="log"></pre>
+    </div>
+
+    <script src="js/sqlite3.js"></script>
+    <script>
+        let Module;
+        let eventCounts = {
+            VDBE_START: 0,
+            VDBE_OPCODE: 0,
+            VDBE_COMPLETE: 0,
+            PARSE_START: 0,
+            PARSE_TOKEN: 0,
+            PARSE_COMPLETE: 0,
+            BTREE_OPEN: 0,
+            BTREE_INSERT: 0,
+            BTREE_DELETE: 0,
+            PAGE_ALLOCATE: 0,
+            PAGE_FREE: 0
+        };
+
+        const eventLog = [];
+
+        function log(msg, type = 'info') {
+            const timestamp = new Date().toISOString();
+            const logEntry = `[${timestamp}] [${type.toUpperCase()}] ${msg}`;
+            eventLog.push(logEntry);
+            updateLogDisplay();
+        }
+
+        function updateLogDisplay() {
+            document.getElementById('log').textContent = eventLog.join('\n');
+        }
+
+        function clearLog() {
+            eventLog.length = 0;
+            updateLogDisplay();
+        }
+
+        async function initSQLite() {
+            if (Module) return Module;
+
+            log('Initializing SQLite WASM...', 'info');
+            const config = {
+                locateFile: (file) => `../build/${file}`,
+                print: (text) => log(`SQLite: ${text}`, 'info'),
+                printErr: (text) => log(`SQLite Error: ${text}`, 'error')
+            };
+
+            try {
+                Module = await SQLite3HeavenInit(config);
+                log('SQLite WASM initialized successfully', 'success');
+                return Module;
+            } catch (e) {
+                log(`Failed to initialize SQLite: ${e.message}`, 'error');
+                throw e;
+            }
+        }
+
+        function resetEventCounts() {
+            for (let key in eventCounts) {
+                eventCounts[key] = 0;
+            }
+        }
+
+        function getEventSummary() {
+            return {
+                vdbe: eventCounts.VDBE_START + ' VDBE_START, ' +
+                      eventCounts.VDBE_OPCODE + ' VDBE_OPCODE, ' +
+                      eventCounts.VDBE_COMPLETE + ' VDBE_COMPLETE',
+                parse: eventCounts.PARSE_START + ' PARSE_START, ' +
+                       eventCounts.PARSE_TOKEN + ' PARSE_TOKEN, ' +
+                       eventCounts.PARSE_COMPLETE + ' PARSE_COMPLETE',
+                btree: eventCounts.BTREE_OPEN + ' BTREE_OPEN, ' +
+                        eventCounts.BTREE_INSERT + ' BTREE_INSERT, ' +
+                        eventCounts.BTREE_DELETE + ' BTREE_DELETE, ' +
+                        eventCounts.PAGE_ALLOCATE + ' PAGE_ALLOCATE, ' +
+                        eventCounts.PAGE_FREE + ' PAGE_FREE'
+            };
+        }
+
+        // Event handlers (these should be called by the WASM module)
+        window.vdbe_start_event = (pc) => {
+            eventCounts.VDBE_START++;
+            log(`VDBE_START at PC=${pc}`, 'info');
+        };
+
+        window.vdbe_opcode_event = (pc, opcode, p1, p2, p3) => {
+            eventCounts.VDBE_OPCODE++;
+            log(`VDBE_OPCODE: PC=${pc}, Opcode=${opcode}, P1=${p1}, P2=${p2}, P3=${p3}`, 'debug');
+        };
+
+        window.vdbe_complete_event = () => {
+            eventCounts.VDBE_COMPLETE++;
+            log('VDBE_COMPLETE', 'info');
+        };
+
+        window.parse_start_event = () => {
+            eventCounts.PARSE_START++;
+            log('PARSE_START', 'info');
+        };
+
+        window.parse_token_event = (tokenType, tokenValue) => {
+            eventCounts.PARSE_TOKEN++;
+            log(`PARSE_TOKEN: Type=${tokenType}, Value=${tokenValue}`, 'debug');
+        };
+
+        window.parse_complete_event = () => {
+            eventCounts.PARSE_COMPLETE++;
+            log('PARSE_COMPLETE', 'info');
+        };
+
+        window.btree_open_event = (rootPage) => {
+            eventCounts.BTREE_OPEN++;
+            log(`BTREE_OPEN: Root Page=${rootPage}`, 'info');
+        };
+
+        window.btree_insert_event = (page, cell) => {
+            eventCounts.BTREE_INSERT++;
+            log(`BTREE_INSERT: Page=${page}, Cell=${cell}`, 'info');
+        };
+
+        window.btree_delete_event = (page, cell) => {
+            eventCounts.BTREE_DELETE++;
+            log(`BTREE_DELETE: Page=${page}, Cell=${cell}`, 'info');
+        };
+
+        window.page_allocate_event = (page) => {
+            eventCounts.PAGE_ALLOCATE++;
+            log(`PAGE_ALLOCATE: Page=${page}`, 'info');
+        };
+
+        window.page_free_event = (page) => {
+            eventCounts.PAGE_FREE++;
+            log(`PAGE_FREE: Page=${page}`, 'info');
+        };
+
+        async function testVdbe() {
+            const resultEl = document.getElementById('vdbe-result');
+            resultEl.textContent = 'Testing...';
+
+            try {
+                resetEventCounts();
+                clearLog();
+
+                const db = await initSQLite();
+                log('Executing: CREATE TABLE test (id INTEGER, name TEXT)', 'info');
+
+                db.exec('CREATE TABLE test (id INTEGER, name TEXT)');
+
+                const summary = getEventSummary();
+                const vdbeWorking = eventCounts.VDBE_START > 0 && eventCounts.VDBE_OPCODE > 0 && eventCounts.VDBE_COMPLETE > 0;
+
+                resultEl.innerHTML = `
+<span class="${vdbeWorking ? 'success' : 'error'}">
+VDBE Events: ${vdbeWorking ? '✓ WORKING' : '✗ FAILED'}
+</span>
+${summary.vdbe}
+                `.trim();
+            } catch (e) {
+                resultEl.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                log(`Test failed: ${e.message}`, 'error');
+            }
+        }
+
+        async function testParsing() {
+            const resultEl = document.getElementById('parse-result');
+            resultEl.textContent = 'Testing...';
+
+            try {
+                resetEventCounts();
+                clearLog();
+
+                const db = await initSQLite();
+                log('Executing: SELECT * FROM test WHERE id = 1', 'info');
+
+                db.exec('CREATE TABLE IF NOT EXISTS test (id INTEGER, name TEXT)');
+                db.exec('SELECT * FROM test WHERE id = 1');
+
+                const summary = getEventSummary();
+                const parseWorking = eventCounts.PARSE_START > 0 && eventCounts.PARSE_TOKEN > 0 && eventCounts.PARSE_COMPLETE > 0;
+
+                resultEl.innerHTML = `
+<span class="${parseWorking ? 'success' : 'error'}">
+Parsing Events: ${parseWorking ? '✓ WORKING' : '✗ FAILED'}
+</span>
+${summary.parse}
+                `.trim();
+            } catch (e) {
+                resultEl.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                log(`Test failed: ${e.message}`, 'error');
+            }
+        }
+
+        async function testBtree() {
+            const resultEl = document.getElementById('btree-result');
+            resultEl.textContent = 'Testing...';
+
+            try {
+                resetEventCounts();
+                clearLog();
+
+                const db = await initSQLite();
+                log('Executing: INSERT into test...', 'info');
+
+                db.exec('CREATE TABLE IF NOT EXISTS test (id INTEGER, name TEXT)');
+                db.exec('INSERT INTO test VALUES (1, "Alice")');
+                db.exec('INSERT INTO test VALUES (2, "Bob")');
+
+                const summary = getEventSummary();
+                const btreeWorking = eventCounts.PAGE_ALLOCATE > 0 || eventCounts.BTREE_INSERT > 0;
+
+                resultEl.innerHTML = `
+<span class="${btreeWorking ? 'success' : 'error'}">
+B-Tree Events: ${btreeWorking ? '✓ WORKING' : '✗ FAILED'}
+</span>
+${summary.btree}
+                `.trim();
+            } catch (e) {
+                resultEl.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                log(`Test failed: ${e.message}`, 'error');
+            }
+        }
+
+        // Auto-initialize
+        window.addEventListener('load', async () => {
+            log('Page loaded. Click buttons to test features.', 'info');
+            try {
+                await initSQLite();
+            } catch (e) {
+                log(`Initialization error: ${e.message}`, 'error');
+            }
+        });
+    </script>
+</body>
+</html>

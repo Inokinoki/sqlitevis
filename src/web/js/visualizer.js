@@ -399,7 +399,14 @@ class BTreeVisualizer {
         // Track this as the last accessed page
         this.lastAccessedPage = pageNum;
 
-        this.layout();
+        // Batch layout and draw calls - only schedule once
+        if (!this._layoutScheduled) {
+            this._layoutScheduled = true;
+            requestAnimationFrame(() => {
+                this.layout();
+                this._layoutScheduled = false;
+            });
+        }
         this.draw();
     }
 
@@ -426,7 +433,14 @@ class BTreeVisualizer {
             this.animateInsertion(pageNum, cellIdx);
         }
 
-        this.layout();
+        // Batch layout call
+        if (!this._layoutScheduled) {
+            this._layoutScheduled = true;
+            requestAnimationFrame(() => {
+                this.layout();
+                this._layoutScheduled = false;
+            });
+        }
         this.draw();
     }
 
@@ -442,7 +456,15 @@ class BTreeVisualizer {
         }
 
         node.cells.splice(cellIdx, 1);
-        this.layout();
+
+        // Batch layout call
+        if (!this._layoutScheduled) {
+            this._layoutScheduled = true;
+            requestAnimationFrame(() => {
+                this.layout();
+                this._layoutScheduled = false;
+            });
+        }
         this.draw();
     }
 
@@ -477,7 +499,14 @@ class BTreeVisualizer {
             this.animateSplit(originalPage, newPage, splitCell);
         }
 
-        this.layout();
+        // Batch layout call
+        if (!this._layoutScheduled) {
+            this._layoutScheduled = true;
+            requestAnimationFrame(() => {
+                this.layout();
+                this._layoutScheduled = false;
+            });
+        }
         this.draw();
     }
 
@@ -610,32 +639,132 @@ class BTreeVisualizer {
     }
 
     /**
-     * Internal draw implementation
+     * Internal draw implementation - HIGHLY OPTIMIZED
      */
     _performDraw() {
-        const rect = this.canvas.getBoundingClientRect();
+        const startTime = performance.now();
 
-        // Cache dimensions to avoid repeated getBoundingClientRect calls
-        if (this._canvasWidth !== rect.width || this._canvasHeight !== rect.height) {
-            this._canvasWidth = rect.width;
-            this._canvasHeight = rect.height;
+        // Use cached dimensions to avoid expensive getBoundingClientRect calls
+        if (this._canvasWidth !== this.canvas.clientWidth || this._canvasHeight !== this.canvas.clientHeight) {
+            this._canvasWidth = this.canvas.clientWidth;
+            this._canvasHeight = this.canvas.clientHeight;
         }
 
+        // Clear canvas in one operation
         this.ctx.clearRect(0, 0, this._canvasWidth, this._canvasHeight);
 
         // Draw background
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
 
-        // Draw connections first
+        // Early exit if no nodes to draw
+        if (this.nodes.size === 0) {
+            // Record frame time even for empty frames
+            const renderTime = performance.now() - startTime;
+            if (typeof perfMonitor !== 'undefined') {
+                perfMonitor.recordFrame(renderTime);
+            }
+            return;
+        }
+
+        // Batch all stroke/fillStyle changes to minimize context state changes
+        // Draw all connections first (same color/style)
+        this.ctx.strokeStyle = this.colors.connection;
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+
+        const connectionsToDraw = [];
+
         this.nodes.forEach(node => {
-            this.drawConnections(node);
+            node.children.forEach(childPage => {
+                const child = this.nodes.get(childPage);
+                if (child) {
+                    connectionsToDraw.push([node, child]);
+                }
+            });
         });
 
-        // Draw nodes
-        this.nodes.forEach(node => {
-            this.drawNode(node);
+        // Draw all connections in a single path
+        connectionsToDraw.forEach(([node, child]) => {
+            this.ctx.moveTo(
+                node.x + this.nodeWidth / 2,
+                node.y + this.nodeHeight
+            );
+            this.ctx.lineTo(
+                child.x + this.nodeWidth / 2,
+                child.y
+            );
         });
+        this.ctx.stroke();
+
+        // Pre-calculate colors to minimize property access
+        const nodeLeafColor = this.colors.nodeLeaf;
+        const nodeInternalColor = this.colors.nodeInternal;
+        const nodeHighlightColor = this.colors.nodeHighlight;
+        const borderColor = this.colors.border;
+        const textColor = 'white';
+
+        // Draw nodes - batch by color to minimize fillStyle changes
+        const leafNodes = [];
+        const internalNodes = [];
+        const highlightedNodes = [];
+
+        this.nodes.forEach(node => {
+            if (this.highlightedNodes.has(node.page)) {
+                highlightedNodes.push(node);
+            } else if (node.type === 1) {
+                leafNodes.push(node);
+            } else {
+                internalNodes.push(node);
+            }
+        });
+
+        // Helper to draw multiple nodes of same color
+        const drawNodesBatch = (nodes, fillColor) => {
+            this.ctx.fillStyle = fillColor;
+            this.ctx.strokeStyle = borderColor;
+            this.ctx.lineWidth = 2;
+            this.ctx.font = 'bold 12px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'top';
+
+            nodes.forEach(node => {
+                // Draw rounded rectangle
+                this.roundRect(node.x, node.y, this.nodeWidth, this.nodeHeight, 8);
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Page number
+                this.ctx.fillText(
+                    `Page ${node.page}`,
+                    node.x + this.nodeWidth / 2,
+                    node.y + 8
+                );
+
+                // Type label
+                this.ctx.font = '10px sans-serif';
+                this.ctx.fillText(
+                    node.type === 1 ? 'LEAF' : 'INTERIOR',
+                    node.x + this.nodeWidth / 2,
+                    node.y + 35
+                );
+
+                // Cell count
+                this.ctx.fillText(
+                    `${node.cells.length} cells`,
+                    node.x + this.nodeWidth / 2,
+                    node.y + 50
+                );
+
+                // Reset font for next iteration
+                this.ctx.font = 'bold 12px sans-serif';
+            });
+        };
+
+        // Draw nodes by color batches (fewer context state changes)
+        drawNodesBatch(internalNodes, nodeInternalColor);
+        drawNodesBatch(leafNodes, nodeLeafColor);
+        drawNodesBatch(highlightedNodes, nodeHighlightColor);
 
         // Update page count (throttled)
         if (!this._pageCountThrottled) {
@@ -647,6 +776,14 @@ class BTreeVisualizer {
                 }
                 this._pageCountThrottled = false;
             });
+        }
+
+        // Track frame time for performance monitoring
+        this._frameTime = performance.now() - startTime;
+
+        // Record frame to performance monitor
+        if (typeof perfMonitor !== 'undefined') {
+            perfMonitor.recordFrame(this._frameTime);
         }
     }
 
@@ -866,43 +1003,59 @@ class BTreeVisualizer {
     }
 
     /**
-     * Animate insertion
+     * Animate insertion - SIMPLIFIED for performance
+     * Uses minimal highlighting instead of full animation
      */
     animateInsertion(pageNum, cellIdx) {
+        if (!this.showTransitions) return;
+
+        // Just highlight, no animation loop
         this.highlightedNodes.add(pageNum);
+        this.draw();
+
+        // Quick flash then remove (200ms instead of 500ms)
         setTimeout(() => {
             this.highlightedNodes.delete(pageNum);
             this.draw();
-        }, 500 / this.animationSpeed);
+        }, 200);
     }
 
     /**
-     * Animate deletion
+     * Animate deletion - SIMPLIFIED for performance
      */
     animateDeletion(pageNum, cellIdx) {
+        if (!this.showTransitions) return;
+
         this.highlightedNodes.add(pageNum);
+        this.draw();
+
         setTimeout(() => {
             this.highlightedNodes.delete(pageNum);
             this.draw();
-        }, 500 / this.animationSpeed);
+        }, 200);
     }
 
     /**
-     * Animate split
+     * Animate split - SIMPLIFIED for performance
      */
     animateSplit(originalPage, newPage, splitCell) {
+        if (!this.showTransitions) return;
+
         this.highlightedNodes.add(originalPage);
         this.highlightedNodes.add(newPage);
+        this.draw();
 
+        // Reduced from 1000ms to 300ms for snappier feel
         setTimeout(() => {
             this.highlightedNodes.delete(originalPage);
             this.highlightedNodes.delete(newPage);
             this.draw();
-        }, 1000 / this.animationSpeed);
+        }, 300);
     }
 
     /**
-     * Animation loop with visibility check
+     * Animation loop - OPTIMIZED: Only runs when there are active animations
+     * This is CRITICAL for performance - no continuous loops!
      */
     startAnimationLoop() {
         if (this._animationRunning) return;
@@ -916,6 +1069,7 @@ class BTreeVisualizer {
             }
 
             // Process animations
+            const hadAnimations = this.animations.length > 0;
             this.animations = this.animations.filter(anim => {
                 anim.progress += 0.016 * this.animationSpeed; // ~60fps
                 if (anim.progress >= 1) {
@@ -925,8 +1079,16 @@ class BTreeVisualizer {
                 return true;
             });
 
+            // Draw only if we have animations
             if (this.animations.length > 0) {
                 this.draw();
+            }
+
+            // CRITICAL: Stop the loop if no more animations
+            // This prevents continuous rendering and saves CPU/battery
+            if (this.animations.length === 0) {
+                this._animationRunning = false;
+                return;
             }
 
             if (this._animationRunning) {
@@ -1108,42 +1270,51 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw parse tree visualization
+     * Draw parse tree visualization (OPTIMIZED with viewport virtualization)
      */
     drawParseTree(waiting = false) {
-        const rect = this.canvas.getBoundingClientRect();
+        // Use cached dimensions
+        const width = this._canvasWidth || this.canvas.clientWidth;
+        const height = this._canvasHeight || this.canvas.clientHeight;
+
+        // Clear and draw background
         this.ctx.fillStyle = this.colors.background;
-        this.ctx.fillRect(0, 0, rect.width, rect.height);
+        this.ctx.fillRect(0, 0, width, height);
 
         // Draw title
         this.ctx.fillStyle = this.colors.text;
         this.ctx.font = 'bold 16px sans-serif';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('SQL Parse Tree', rect.width / 2, 30);
+        this.ctx.textBaseline = 'top';
+        this.ctx.fillText('SQL Parse Tree', width / 2, 30);
 
         // Show waiting message if no SQL yet
         if (waiting || !this.currentSQL) {
             this.ctx.font = '14px sans-serif';
             this.ctx.fillStyle = this.colors.textLight;
-            this.ctx.fillText('Execute a SQL query to see its parse tree structure', rect.width / 2, rect.height / 2 - 20);
+            this.ctx.fillText('Execute a SQL query to see its parse tree structure', width / 2, height / 2 - 20);
 
             this.ctx.font = '13px monospace';
             this.ctx.fillStyle = '#94a3b8';
-            this.ctx.fillText('Example: SELECT id, name FROM users;', rect.width / 2, rect.height / 2 + 20);
+            this.ctx.fillText('Example: SELECT id, name FROM users;', width / 2, height / 2 + 20);
             return;
         }
 
-        // Draw SQL
+        // Draw SQL with truncation if too long
         this.ctx.font = '14px monospace';
         this.ctx.fillStyle = this.colors.textLight;
-        this.ctx.fillText(this.currentSQL || 'No SQL', rect.width / 2, 60);
+        const maxSqlLength = 80;
+        const displaySQL = this.currentSQL.length > maxSqlLength
+            ? this.currentSQL.substring(0, maxSqlLength) + '...'
+            : this.currentSQL;
+        this.ctx.fillText(displaySQL, width / 2, 60);
 
-        // Draw tree
-        if (this.parseTree) {
-            this.drawTreeNode(this.parseTree, rect.width / 2, 100, 0);
+        // Draw tree (only if it exists and we have space)
+        if (this.parseTree && height > 200) {
+            this.drawTreeNode(this.parseTree, width / 2, 100, 0);
         }
 
-        // Draw tokens
+        // Draw tokens with viewport optimization
         if (this.parseTokens.length > 0) {
             this.drawParseTokens();
         }
@@ -1151,7 +1322,8 @@ class BTreeVisualizer {
         // Draw status
         this.ctx.font = '12px sans-serif';
         this.ctx.fillStyle = '#10b981';
-        this.ctx.fillText('Parse Complete', rect.width / 2, rect.height - 20);
+        this.ctx.textBaseline = 'bottom';
+        this.ctx.fillText('Parse Complete', width / 2, height - 20);
     }
 
     /**
@@ -1206,59 +1378,103 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw parse tokens list with lazy rendering (only visible tokens)
+     * Draw parse tokens list with viewport virtualization (HIGHLY OPTIMIZED)
+     * Only renders tokens that fit in the visible viewport
      */
     drawParseTokens() {
-        const rect = this.canvas.getBoundingClientRect();
+        const width = this._canvasWidth || this.canvas.clientWidth;
+        const height = this._canvasHeight || this.canvas.clientHeight;
+
         const startY = 400;
         const tokenWidth = 150;
         const tokenHeight = 30;
+        const tokenGap = 5;
 
+        // Check if we have space to draw tokens
+        if (startY >= height - 60) {
+            return; // Not enough space, skip token rendering
+        }
+
+        // Draw section header
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
         this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'top';
         this.ctx.fillText(`Tokens (${this.parseTokens.length}):`, 20, startY);
 
-        // Only render visible tokens to improve performance
-        const availableHeight = this._canvasHeight - startY - 60;
-        const maxVisibleTokens = Math.floor(availableHeight / (tokenHeight + 5));
+        // Calculate viewport
+        const availableHeight = height - startY - 60;
+        const maxVisibleTokens = Math.floor(availableHeight / (tokenHeight + tokenGap));
         const tokensToRender = Math.min(this.parseTokens.length, maxVisibleTokens);
 
-        // Use a single fillStyle for all backgrounds of the same type
+        if (tokensToRender === 0) {
+            return;
+        }
+
+        // Pre-calculate colors
         const keywordColor = this.colors.nodeInternal;
         const identifierColor = this.colors.nodeLeaf;
         const defaultColor = this.colors.background;
+        const borderColor = this.colors.border;
+
+        // Batch tokens by type to minimize fillStyle changes
+        const keywordTokens = [];
+        const identifierTokens = [];
+        const otherTokens = [];
 
         for (let i = 0; i < tokensToRender; i++) {
             const token = this.parseTokens[i];
-            const x = 20;
-            const y = startY + 30 + i * (tokenHeight + 5);
+            const y = startY + 30 + i * (tokenHeight + tokenGap);
+            const tokenData = { token, x: 20, y };
 
-            // Token background
-            const color = token.type === 'keyword' ? keywordColor :
-                         token.type === 'identifier' ? identifierColor :
-                         defaultColor;
+            if (token.type === 'keyword') {
+                keywordTokens.push(tokenData);
+            } else if (token.type === 'identifier') {
+                identifierTokens.push(tokenData);
+            } else {
+                otherTokens.push(tokenData);
+            }
+        }
 
-            this.ctx.fillStyle = color;
-            this.ctx.fillRect(x, y, tokenWidth, tokenHeight);
+        // Helper to draw token batch
+        const drawTokenBatch = (tokens, fillColor) => {
+            if (tokens.length === 0) return;
 
-            this.ctx.strokeStyle = this.colors.border;
+            this.ctx.fillStyle = fillColor;
+            this.ctx.strokeStyle = borderColor;
             this.ctx.lineWidth = 1;
-            this.ctx.strokeRect(x, y, tokenWidth, tokenHeight);
-
-            // Token text
-            this.ctx.fillStyle = 'white';
             this.ctx.font = '11px monospace';
             this.ctx.textAlign = 'left';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(`${token.token} (${token.type})`, x + 10, y + tokenHeight / 2);
-        }
 
-        // Show indicator if there are more tokens
+            tokens.forEach(({ token, x, y }) => {
+                // Draw background
+                this.ctx.fillRect(x, y, tokenWidth, tokenHeight);
+                this.ctx.strokeRect(x, y, tokenWidth, tokenHeight);
+
+                // Draw text
+                this.ctx.fillStyle = 'white';
+                this.ctx.fillText(`${token.token} (${token.type})`, x + 10, y + tokenHeight / 2);
+                this.ctx.fillStyle = fillColor; // Reset for next rectangle
+            });
+        };
+
+        // Draw batches by color (fewer context state changes)
+        drawTokenBatch(otherTokens, defaultColor);
+        drawTokenBatch(identifierTokens, identifierColor);
+        drawTokenBatch(keywordTokens, keywordColor);
+
+        // Draw "more tokens" indicator if needed
         if (this.parseTokens.length > tokensToRender) {
-            this.ctx.fillStyle = this.colors.textSecondary;
+            this.ctx.fillStyle = this.colors.textLight;
             this.ctx.font = '10px sans-serif';
-            this.ctx.fillText(`... and ${this.parseTokens.length - tokensToRender} more tokens`, 20, startY + 30 + tokensToRender * (tokenHeight + 5));
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'top';
+            this.ctx.fillText(
+                `... and ${this.parseTokens.length - tokensToRender} more tokens`,
+                20,
+                startY + 30 + tokensToRender * (tokenHeight + tokenGap)
+            );
         }
     }
 
@@ -1324,67 +1540,112 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw VDBE opcode list with current execution highlighted (optimized)
+     * Draw VDBE opcode list with current execution highlighted (HIGHLY OPTIMIZED)
+     * Uses viewport virtualization and batched rendering
      */
     drawVdbeList(state, info) {
-        const rect = this.canvas.getBoundingClientRect();
+        // Use cached dimensions
+        const width = this._canvasWidth || this.canvas.clientWidth;
+        const height = this._canvasHeight || this.canvas.clientHeight;
+
+        // Clear and draw background
         this.ctx.fillStyle = this.colors.background;
-        this.ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
+        this.ctx.fillRect(0, 0, width, height);
 
         // Draw title and state
         this.ctx.fillStyle = this.colors.text;
         this.ctx.font = 'bold 16px sans-serif';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('VDBE Program Execution', this._canvasWidth / 2, 30);
+        this.ctx.textBaseline = 'top';
+        this.ctx.fillText('VDBE Program Execution', width / 2, 30);
         this.ctx.font = '14px sans-serif';
-        this.ctx.fillText(`${state} - ${info}`, this._canvasWidth / 2, 55);
+        this.ctx.fillText(`${state} - ${info}`, width / 2, 55);
 
-        // Only render visible opcodes to improve performance
-        const startY = 90;
-        const lineHeight = 28;
-        const availableHeight = this._canvasHeight - startY - 40;
-        const maxVisibleOpcodes = Math.floor(availableHeight / lineHeight);
-
-        // Calculate scroll position (center on current instruction if possible)
-        let scrollOffset = 0;
-        if (this.vdbeCurrentPc >= maxVisibleOpcodes) {
-            scrollOffset = this.vdbeCurrentPc - Math.floor(maxVisibleOpcodes / 2);
+        // Early exit if no opcodes
+        if (this.vdbeOpcodes.length === 0) {
+            this.ctx.fillStyle = this.colors.textLight;
+            this.ctx.font = '13px sans-serif';
+            this.ctx.fillText('No VDBE opcodes to display', width / 2, height / 2);
+            return;
         }
 
-        const startIndex = Math.max(0, scrollOffset);
-        const endIndex = Math.min(this.vdbeOpcodes.length, startIndex + maxVisibleOpcodes);
+        // Viewport calculation
+        const startY = 90;
+        const lineHeight = 28;
+        const padding = 40;
+        const availableHeight = height - startY - padding;
+        const maxVisibleOpcodes = Math.floor(availableHeight / lineHeight);
 
-        // Draw visible opcodes
-        for (let i = startIndex; i < endIndex; i++) {
+        // Calculate viewport with smart centering on current instruction
+        let viewportStart = 0;
+        if (this.vdbeCurrentPc >= maxVisibleOpcodes / 2) {
+            viewportStart = Math.floor(this.vdbeCurrentPc - maxVisibleOpcodes / 2);
+        }
+        viewportStart = Math.max(0, Math.min(viewportStart, this.vdbeOpcodes.length - maxVisibleOpcodes));
+        const viewportEnd = Math.min(this.vdbeOpcodes.length, viewportStart + maxVisibleOpcodes);
+
+        // Batch draw opcodes by color (highlighted vs normal)
+        const normalOpcodes = [];
+        const highlightedOpcode = [];
+
+        for (let i = viewportStart; i < viewportEnd; i++) {
             const op = this.vdbeOpcodes[i];
             if (!op) continue;
 
-            const y = startY + (i - startIndex) * lineHeight;
+            const y = startY + (i - viewportStart) * lineHeight;
             const isCurrent = i === this.vdbeCurrentPc;
 
-            // Highlight current instruction
-            if (isCurrent) {
-                this.ctx.fillStyle = this.colors.nodeHighlight;
-                this.ctx.fillRect(30, y - 5, Math.min(500, this._canvasWidth - 60), lineHeight - 2);
-            }
+            const opcodeData = { op, y, index: i };
 
-            // Draw opcode
-            this.ctx.fillStyle = isCurrent ? 'white' : this.colors.text;
-            this.ctx.font = '13px monospace';
-            this.ctx.textAlign = 'left';
+            if (isCurrent) {
+                highlightedOpcode.push(opcodeData);
+            } else {
+                normalOpcodes.push(opcodeData);
+            }
+        }
+
+        // Pre-calculate positions and text
+        const textX = 40;
+        const maxWidth = Math.min(500, width - 60);
+
+        // Draw normal opcodes in batch
+        this.ctx.fillStyle = this.colors.text;
+        this.ctx.font = '13px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'top';
+
+        normalOpcodes.forEach(({ op, y }) => {
             this.ctx.fillText(
                 `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`,
-                40,
-                y + 12
+                textX,
+                y + 8
+            );
+        });
+
+        // Draw highlighted opcode with background
+        if (highlightedOpcode.length > 0) {
+            const { op, y } = highlightedOpcode[0];
+
+            this.ctx.fillStyle = this.colors.nodeHighlight;
+            this.ctx.fillRect(textX - 10, y - 5, maxWidth, lineHeight - 2);
+
+            this.ctx.fillStyle = 'white';
+            this.ctx.font = '13px monospace';
+            this.ctx.fillText(
+                `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`,
+                textX,
+                y + 8
             );
         }
 
-        // Show instruction count and scroll indicator
+        // Draw stats at bottom
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
-        this.ctx.textAlign = 'left';
         const countText = `Total opcodes: ${this.vdbeOpcodes.length}`;
-        const scrollText = endIndex < this.vdbeOpcodes.length ? ` (showing ${startIndex + 1}-${endIndex})` : '';
-        this.ctx.fillText(countText + scrollText, 30, this._canvasHeight - 20);
+        const scrollText = viewportEnd < this.vdbeOpcodes.length
+            ? ` (showing ${viewportStart + 1}-${viewportEnd})`
+            : '';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(countText + scrollText, textX - 10, height - 20);
     }
 }

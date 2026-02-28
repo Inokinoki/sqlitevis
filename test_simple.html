@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SQLite WASM Debug</title>
+</head>
+<body>
+    <h1>SQLite WASM Debug Test</h1>
+    <div id="output"></div>
+
+    <script src="../../build/sqlite3.js"></script>
+    <script>
+        const output = document.getElementById('output');
+
+        function log(msg) {
+            output.innerHTML += '<div>' + msg + '</div>';
+            console.log(msg);
+        }
+
+        async function test() {
+            try {
+                log('1. Checking if createSQLiteModule exists...');
+                if (typeof createSQLiteModule === 'undefined') {
+                    log('❌ createSQLiteModule is undefined');
+                    return;
+                }
+                log('✅ createSQLiteModule exists');
+
+                log('2. Loading module...');
+                const module = await createSQLiteModule();
+                log('✅ Module loaded');
+                log('Module type: ' + typeof module);
+                log('Module keys: ' + Object.keys(module).slice(0, 10).join(', '));
+
+                // Check for HEAP32
+                log('3. Checking HEAP32...');
+                if (!module.HEAP32) {
+                    log('❌ HEAP32 is undefined!');
+                    log('Available heap arrays: ' +
+                        Object.keys(module).filter(k => k.startsWith('HEAP')).join(', '));
+                } else {
+                    log('✅ HEAP32 exists, length: ' + module.HEAP32.length);
+                }
+
+                // Test malloc
+                log('4. Testing _malloc...');
+                if (typeof module._malloc !== 'function') {
+                    log('❌ _malloc is not a function');
+                } else {
+                    const ptr = module._malloc(4);
+                    log('✅ malloc(4) returned pointer: ' + ptr);
+
+                    // Test HEAP32 access
+                    log('5. Testing HEAP32 access...');
+                    module.HEAP32[ptr >> 2] = 12345;
+                    const value = module.HEAP32[ptr >> 2];
+                    log('✅ Wrote 12345, read: ' + value);
+
+                    module._free(ptr);
+                    log('✅ Memory freed');
+                }
+
+                // Test sqlite3_open
+                log('6. Testing sqlite3_open...');
+                if (typeof module._sqlite3_open !== 'function') {
+                    log('❌ _sqlite3_open is not a function');
+                } else {
+                    const dbPath = ':memory:';
+                    const dbPathLen = module.lengthBytesUTF8(dbPath) + 1;
+                    const dbPathPtr = module._malloc(dbPathLen);
+                    module.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
+                    log('✅ Allocated path string at: ' + dbPathPtr);
+
+                    const dbPtrPtr = module._malloc(4);
+                    log('✅ Allocated db pointer at: ' + dbPtrPtr);
+
+                    log('Calling sqlite3_open...');
+                    const result = module._sqlite3_open(dbPathPtr, dbPtrPtr);
+                    log('sqlite3_open returned: ' + result);
+
+                    if (result === 0) {
+                        const dbHandle = module.HEAP32[dbPtrPtr >> 2];
+                        log('✅ Database handle: ' + dbHandle);
+                        log('✅ SUCCESS! Database opened');
+
+                        // Close
+                        module._sqlite3_close(dbHandle);
+                        log('✅ Database closed');
+                    } else {
+                        log('❌ sqlite3_open failed with code: ' + result);
+                        // Try to get error message
+                        const dbHandle = module.HEAP32[dbPtrPtr >> 2];
+                        if (dbHandle) {
+                            const errPtr = module._sqlite3_errmsg(dbHandle);
+                            const errMsg = module.UTF8ToString(errPtr);
+                            log('Error message: ' + errMsg);
+                        }
+                    }
+
+                    module._free(dbPathPtr);
+                    module._free(dbPtrPtr);
+                }
+
+            } catch (error) {
+                log('❌ ERROR: ' + error.message);
+                log('Stack: ' + error.stack);
+            }
+        }
+
+        test().then(() => log('=== Test Complete ==='));
+    </script>
+</body>
+</html>

@@ -10,29 +10,13 @@ class EventManager {
         this.eventCount = 0;
         this.autoScroll = true;
 
-        // Virtual scrolling optimization
-        this._visibleStart = 0;
-        this._visibleEnd = 50;
-        this._scrollTop = 0;
-        this._itemHeight = 32; // Approximate height per event
-        this._containerHeight = 0;
-
         // Object pooling for DOM elements to reduce GC pressure
         this._elementPool = [];
         this._maxPoolSize = 100;
 
-        // Performance: Throttle event processing
-        this._lastProcessTime = 0;
-        this._processInterval = 8; // Process events every 8ms max (120fps)
-        this._pendingEvents = [];
-        this._processingScheduled = false;
-
         // Performance: Limit visible events to prevent DOM overload
         this._maxVisibleEvents = 500; // Only show last 500 events
         this._eventLogEnabled = true; // Can toggle to disable log entirely
-
-        // Setup scroll listener for virtual scrolling
-        this._setupVirtualScroll();
 
         // Event type names
         this.eventTypeNames = {
@@ -58,12 +42,32 @@ class EventManager {
             6: 'btree', 7: 'btree', 8: 'parse', 9: 'parse', 10: 'parse',
             11: 'vdbe', 12: 'vdbe', 13: 'vdbe'
         };
+
+        // Time formatter cache
+        this._timeFormatter = new Intl.DateTimeFormat('en-US', {
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            fractionalSecondDigits: 3
+        });
     }
 
     /**
-     * Handle an event from the WASM module (with throttling for performance)
+     * Handle an event from the WASM module (with AGGRESSIVE throttling for performance)
      */
     handleEvent(eventType, dataJson) {
+        // Ultra Fast path: Skip most VDBE opcode events entirely
+        // Only log every 10th opcode to reduce UI spam
+        if (eventType === 12) { // VDBE_OPCODE
+            this._vdbeOpcodeCount = (this._vdbeOpcodeCount || 0) + 1;
+            if (this._vdbeOpcodeCount % 10 !== 0) {
+                // Skip 9 out of 10 opcode events for performance
+                this.eventCount++;
+                return;
+            }
+        }
+
         // Fast path: Don't parse JSON for events we don't care about
         if (eventType !== 8 && eventType !== 9 && eventType !== 10 &&
             eventType !== 11 && eventType !== 12 && eventType !== 13) {
@@ -177,103 +181,6 @@ class EventManager {
     }
 
     /**
-     * Setup virtual scrolling for event log with passive listeners
-     */
-    _setupVirtualScroll() {
-        // Delay setup until DOM is ready
-        setTimeout(() => {
-            const logElement = document.getElementById('event-log');
-            if (!logElement) return;
-
-            this._containerHeight = logElement.clientHeight;
-
-            // Throttled scroll handler with passive option for better performance
-            let scrollTimeout;
-            logElement.addEventListener('scroll', () => {
-                if (scrollTimeout) return;
-
-                scrollTimeout = requestAnimationFrame(() => {
-                    this._updateVisibleRange();
-                    scrollTimeout = null;
-                });
-            }, { passive: true });
-
-            // Resize observer for container
-            const resizeObserver = new ResizeObserver(entries => {
-                for (const entry of entries) {
-                    this._containerHeight = entry.contentRect.height;
-                    this._updateVisibleRange();
-                }
-            });
-            resizeObserver.observe(logElement);
-        }, 100);
-    }
-
-    /**
-     * Update visible range for virtual scrolling
-     */
-    _updateVisibleRange() {
-        const logElement = document.getElementById('event-log');
-        if (!logElement) return;
-
-        const scrollTop = logElement.scrollTop;
-        const viewportHeight = this._containerHeight;
-
-        // Calculate visible range with buffer
-        const bufferSize = 20;
-        this._visibleStart = Math.max(0, Math.floor(scrollTop / this._itemHeight) - bufferSize);
-        this._visibleEnd = Math.min(
-            this.events.length,
-            Math.ceil((scrollTop + viewportHeight) / this._itemHeight) + bufferSize
-        );
-
-        // Re-render if needed
-        this._renderVisibleEvents();
-    }
-
-    /**
-     * Render only visible events (virtual scrolling) with object pooling
-     */
-    _renderVisibleEvents() {
-        const logElement = document.getElementById('event-log');
-        if (!logElement) return;
-
-        // Return old elements to pool before rendering
-        const oldElements = logElement.querySelectorAll('.event-item');
-        oldElements.forEach(el => this._returnElementToPool(el));
-
-        // Use DocumentFragment for efficient batch insertion
-        const fragment = document.createDocumentFragment();
-
-        // Set total height for scrollbar
-        const totalHeight = this.events.length * this._itemHeight;
-        logElement.style.height = `${totalHeight}px`;
-        logElement.style.position = 'relative';
-
-        // Limit rendering to prevent DOM overload
-        const maxRender = Math.min(this._visibleEnd - this._visibleStart, 100);
-        const renderEnd = Math.min(this._visibleEnd, this._visibleStart + maxRender);
-
-        // Render visible events (limited)
-        for (let i = this._visibleStart; i < renderEnd; i++) {
-            const event = this.events[i];
-            if (!event) continue;
-
-            const eventItem = this._createEventElement(event);
-            eventItem.style.position = 'absolute';
-            eventItem.style.top = `${i * this._itemHeight}px`;
-            eventItem.style.width = '100%';
-            fragment.appendChild(eventItem);
-        }
-
-        // Clear and append (faster than innerHTML)
-        while (logElement.firstChild) {
-            logElement.removeChild(logElement.firstChild);
-        }
-        logElement.appendChild(fragment);
-    }
-
-    /**
      * Create event DOM element with object pooling
      */
     _createEventElement(event) {
@@ -300,17 +207,6 @@ class EventManager {
         } else {
             // Update existing element
             eventItem.className = `event-item event-${event.category}`;
-        }
-
-        // Cache timestamp formatting
-        if (!this._timeFormatter) {
-            this._timeFormatter = new Intl.DateTimeFormat('en-US', {
-                hour12: false,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                fractionalSecondDigits: 3
-            });
         }
 
         const time = this._timeFormatter.format(event.timestamp);
@@ -340,7 +236,8 @@ class EventManager {
     }
 
     /**
-     * Log event to the UI with aggressive performance optimization
+     * Log event to the UI with ULTRA aggressive performance optimization
+     * Uses document fragment and throttled updates
      */
     logEvent(event) {
         // Early exit if event log is disabled
@@ -349,41 +246,39 @@ class EventManager {
         const logElement = document.getElementById('event-log');
         if (!logElement) return;
 
-        // Performance: Prune old events to prevent DOM overload
-        if (this.events.length > this._maxVisibleEvents) {
-            // Remove oldest event from DOM
-            const firstEvent = logElement.firstElementChild;
-            if (firstEvent) {
-                firstEvent.remove();
+        // ULTRA Performance: Keep only the most recent 25 events in the DOM
+        // This is the most critical optimization for performance
+        const MAX_DOM_EVENTS = 25;
+
+        // Fast-path: check DOM size
+        if (logElement.children.length >= MAX_DOM_EVENTS) {
+            // Remove first child (fastest way to remove from beginning)
+            if (logElement.firstElementChild) {
+                // Return element to pool instead of destroying it
+                this._returnElementToPool(logElement.firstElementChild);
             }
         }
 
-        // For small number of events, render immediately
-        if (this.events.length < 100) {
-            const eventItem = this._createEventElement(event);
-            logElement.appendChild(eventItem);
+        // Create and append new event
+        const eventItem = this._createEventElement(event);
+        logElement.appendChild(eventItem);
 
-            // Auto-scroll
-            if (this.autoScroll) {
+        // Throttled auto-scroll to reduce layout thrashing
+        // Only scroll every 5 events instead of every event
+        this._scrollCounter = (this._scrollCounter || 0) + 1;
+        if (this.autoScroll && this._scrollCounter % 5 === 0 && !this._scrollScheduled) {
+            this._scrollScheduled = true;
+            requestAnimationFrame(() => {
                 logElement.scrollTop = logElement.scrollHeight;
-            }
-        } else {
-            // For large number of events, use virtual scrolling
-            if (!this._virtualScrollEnabled) {
-                this._virtualScrollEnabled = true;
-                this._updateVisibleRange();
-            } else {
-                // Just update the visible range
-                this._updateVisibleRange();
+                this._scrollScheduled = false;
+            });
+        }
 
-                // Auto-scroll if enabled
-                if (this.autoScroll && this.events.length > 0) {
-                    const lastEventTop = (this.events.length - 1) * this._itemHeight;
-                    if (lastEventTop > logElement.scrollTop + this._containerHeight - 100) {
-                        logElement.scrollTop = lastEventTop;
-                    }
-                }
-            }
+        // Prune the events array to prevent memory leaks
+        // Keep only the most recent 100 events in memory (reduced from 200)
+        const MAX_MEMORY_EVENTS = 100;
+        if (this.events.length > MAX_MEMORY_EVENTS) {
+            this.events.splice(0, this.events.length - MAX_MEMORY_EVENTS);
         }
     }
 
@@ -486,9 +381,6 @@ class EventManager {
     clear() {
         this.events = [];
         this.eventCount = 0;
-        this._virtualScrollEnabled = false;
-        this._visibleStart = 0;
-        this._visibleEnd = 50;
 
         const logElement = document.getElementById('event-log');
         if (logElement) {
@@ -496,8 +388,6 @@ class EventManager {
             while (logElement.firstChild) {
                 logElement.removeChild(logElement.firstChild);
             }
-            logElement.style.height = '';
-            logElement.style.position = '';
         }
 
         this.updateStats();

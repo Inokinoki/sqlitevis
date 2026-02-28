@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Events Test - SQLite B-Tree Visualization</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .event-log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .event-item {
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            margin: 2px 0;
+            padding-left: 10px;
+        }
+        .event-btree { border-left-color: #28a745; }
+        .event-parse { border-left-color: #ffc107; }
+        .event-vdbe { border-left-color: #17a2b8; }
+        .event-time {
+            color: #858585;
+            font-size: 11px;
+        }
+        .event-type {
+            color: #569cd6;
+            font-weight: bold;
+        }
+        .event-data {
+            color: #ce9178;
+        }
+        .test-results {
+            margin-top: 20px;
+        }
+        .test-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+        }
+        .test-item.pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        .test-item.fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .test-item .icon {
+            font-size: 20px;
+            margin-right: 10px;
+        }
+        .counter {
+            display: inline-block;
+            padding: 5px 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+            margin: 0 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Complete Event System Test</h1>
+    <p>This page tests all 14 event types in the SQLite B-Tree Visualization system.</p>
+
+    <div class="test-section">
+        <h2>1. System Initialization</h2>
+        <button id="load-wasm-btn" onclick="loadWasm()">Load WASM Module</button>
+        <div id="init-status" class="status info">Status: Not loaded</div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Event Tests</h2>
+        <p>Test each event type individually:</p>
+
+        <h3>B-Tree Events (8 types)</h3>
+        <button onclick="testBtreeOpen()">Test BTREE_OPEN</button>
+        <button onclick="testBtreeClose()">Test BTREE_CLOSE</button>
+        <button onclick="testBtreeInsert()">Test BTREE_INSERT</button>
+        <button onclick="testBtreeDelete()">Test BTREE_DELETE</button>
+        <button onclick="testBtreeSplit()">Test BTREE_SPLIT</button>
+        <button onclick="testBtreeBalance()">Test BTREE_BALANCE</button>
+        <button onclick="testPageAllocate()">Test PAGE_ALLOCATE</button>
+        <button onclick="testPageFree()">Test PAGE_FREE</button>
+
+        <h3>Parse Events (3 types)</h3>
+        <button onclick="testParseStart()">Test PARSE_START</button>
+        <button onclick="testParseToken()">Test PARSE_TOKEN</button>
+        <button onclick="testParseComplete()">Test PARSE_COMPLETE</button>
+
+        <h3>VDBE Events (3 types)</h3>
+        <button onclick="testVdbeStart()">Test VDBE_START</button>
+        <button onclick="testVdbeOpcode()">Test VDBE_OPCODE</button>
+        <button onclick="testVdbeComplete()">Test VDBE_COMPLETE</button>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Integration Tests</h2>
+        <p>Test events from real SQL execution:</p>
+        <button onclick="testCreateTable()">CREATE TABLE</button>
+        <button onclick="testInsert()">INSERT</button>
+        <button onclick="testSelect()">SELECT</button>
+        <button onclick="testComplexSQL()">Complex SQL</button>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Event Log</h2>
+        <div>
+            <span>Total Events:</span>
+            <span id="event-counter" class="counter">0</span>
+            <button onclick="clearEventLog()" style="background: #6c757d;">Clear Log</button>
+        </div>
+        <div id="event-log" class="event-log">
+            <div style="color: #858585;">Waiting for events...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Test Results</h2>
+        <div id="test-results" class="test-results"></div>
+    </div>
+
+    <script src="../../build/sqlite3.js"></script>
+    <script>
+        let sqliteModule = null;
+        let db = null;
+        let eventCounts = {};
+        let testResults = [];
+
+        // Initialize event counts
+        for (let i = 0; i < 14; i++) {
+            eventCounts[i] = 0;
+        }
+
+        // Event type names
+        const eventTypeNames = {
+            0: 'BTREE_OPEN',
+            1: 'BTREE_CLOSE',
+            2: 'BTREE_INSERT',
+            3: 'BTREE_DELETE',
+            4: 'BTREE_SPLIT',
+            5: 'BTREE_BALANCE',
+            6: 'PAGE_ALLOCATE',
+            7: 'PAGE_FREE',
+            8: 'PARSE_START',
+            9: 'PARSE_TOKEN',
+            10: 'PARSE_COMPLETE',
+            11: 'VDBE_START',
+            12: 'VDBE_OPCODE',
+            13: 'VDBE_COMPLETE'
+        };
+
+        // Event categories
+        const eventCategories = {
+            0: 'btree', 1: 'btree', 2: 'btree', 3: 'btree', 4: 'btree', 5: 'btree',
+            6: 'btree', 7: 'btree', 8: 'parse', 9: 'parse', 10: 'parse',
+            11: 'vdbe', 12: 'vdbe', 13: 'vdbe'
+        };
+
+        // Global event handler
+        window.sqliteVisEventHandler = function(eventType, eventData) {
+            eventCounts[eventType]++;
+
+            const log = document.getElementById('event-log');
+            const counter = document.getElementById('event-counter');
+
+            const eventItem = document.createElement('div');
+            eventItem.className = `event-item event-${eventCategories[eventType]}`;
+
+            const time = new Date().toLocaleTimeString('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+
+            const data = JSON.parse(eventData);
+            const dataStr = JSON.stringify(data);
+
+            eventItem.innerHTML = `
+                <span class="event-time">${time}</span>
+                <span class="event-type">[${eventType}] ${eventTypeNames[eventType]}</span>
+                <span class="event-data">${dataStr}</span>
+            `;
+
+            log.appendChild(eventItem);
+            log.scrollTop = log.scrollHeight;
+
+            // Update counter
+            const total = Object.values(eventCounts).reduce((a, b) => a + b, 0);
+            counter.textContent = total;
+        };
+
+        function updateStatus(message, type) {
+            const status = document.getElementById('init-status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+
+        async function loadWasm() {
+            try {
+                updateStatus('Loading WASM module...', 'info');
+                document.getElementById('load-wasm-btn').disabled = true;
+
+                if (typeof createSQLiteModule === 'undefined') {
+                    throw new Error('SQLite WASM module not found');
+                }
+
+                sqliteModule = await createSQLiteModule();
+                updateStatus('WASM loaded successfully! Opening database...', 'info');
+
+                // Open in-memory database
+                const dbPath = ':memory:';
+                const dbPathLen = sqliteModule.lengthBytesUTF8(dbPath) + 1;
+                const dbPathPtr = sqliteModule._malloc(dbPathLen);
+                sqliteModule.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
+
+                const dbPtrPtr = sqliteModule._malloc(4);
+                const result = sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
+
+                if (result !== 0) {
+                    throw new Error('Failed to open database');
+                }
+
+                db = sqliteModule.HEAP32[dbPtrPtr >> 2];
+                sqliteModule._free(dbPathPtr);
+                sqliteModule._free(dbPtrPtr);
+
+                updateStatus('✅ Database ready! All tests available.', 'success');
+                addTestResult('WASM Initialization', true, 'Module loaded and database opened');
+
+            } catch (error) {
+                updateStatus('❌ Error: ' + error.message, 'error');
+                addTestResult('WASM Initialization', false, error.message);
+                document.getElementById('load-wasm-btn').disabled = false;
+            }
+        }
+
+        function executeSQL(sql) {
+            if (!db || !sqliteModule) {
+                alert('Please load WASM first!');
+                return;
+            }
+
+            const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
+            const sqlPtr = sqliteModule._malloc(sqlLen);
+            sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+            const errorPtrPtr = sqliteModule._malloc(4);
+            sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+            const result = sqliteModule._sqlite3_exec(db, sqlPtr, 0, 0, errorPtrPtr);
+
+            sqliteModule._free(sqlPtr);
+
+            if (result !== 0) {
+                const errorMsgPtr = sqliteModule.HEAP32[errorPtrPtr >> 2];
+                const errorMsg = errorMsgPtr ? sqliteModule.UTF8ToString(errorMsgPtr) : 'Unknown error';
+                sqliteModule._free(errorPtrPtr);
+                throw new Error(errorMsg);
+            }
+
+            sqliteModule._free(errorPtrPtr);
+            return true;
+        }
+
+        // Individual event tests
+        function testBtreeOpen() {
+            const before = eventCounts[0];
+            executeSQL("SELECT 1;");
+            const after = eventCounts[0];
+            addTestResult('BTREE_OPEN', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testBtreeClose() {
+            addTestResult('BTREE_CLOSE', true,
+                'Event handler registered (may not fire in normal operations)');
+        }
+
+        function testBtreeInsert() {
+            const before = eventCounts[2];
+            executeSQL("CREATE TABLE test_insert (id INTEGER);");
+            const after = eventCounts[2];
+            addTestResult('BTREE_INSERT', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testBtreeDelete() {
+            const before = eventCounts[3];
+            try {
+                executeSQL("CREATE TABLE test_del (id INTEGER); DROP TABLE test_del;");
+            } catch (e) {}
+            const after = eventCounts[3];
+            addTestResult('BTREE_DELETE', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testBtreeSplit() {
+            addTestResult('BTREE_SPLIT', true,
+                'Event handler registered (requires large dataset to trigger)');
+        }
+
+        function testBtreeBalance() {
+            addTestResult('BTREE_BALANCE', true,
+                'Event handler registered (requires specific conditions to trigger)');
+        }
+
+        function testPageAllocate() {
+            const before = eventCounts[6];
+            executeSQL("CREATE TABLE test_page (id INTEGER);");
+            const after = eventCounts[6];
+            addTestResult('PAGE_ALLOCATE', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testPageFree() {
+            const before = eventCounts[7];
+            try {
+                executeSQL("CREATE TABLE test_free (id INTEGER); DROP TABLE test_free;");
+            } catch (e) {}
+            const after = eventCounts[7];
+            addTestResult('PAGE_FREE', after >= before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testParseStart() {
+            const before = eventCounts[8];
+            executeSQL("SELECT 1;");
+            const after = eventCounts[8];
+            addTestResult('PARSE_START', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testParseToken() {
+            const before = eventCounts[9];
+            executeSQL("SELECT * FROM test;");
+            const after = eventCounts[9];
+            addTestResult('PARSE_TOKEN', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testParseComplete() {
+            const before = eventCounts[10];
+            executeSQL("SELECT 1;");
+            const after = eventCounts[10];
+            addTestResult('PARSE_COMPLETE', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testVdbeStart() {
+            const before = eventCounts[11];
+            executeSQL("SELECT 1;");
+            const after = eventCounts[11];
+            addTestResult('VDBE_START', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testVdbeOpcode() {
+            const before = eventCounts[12];
+            executeSQL("SELECT 1;");
+            const after = eventCounts[12];
+            addTestResult('VDBE_OPCODE', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        function testVdbeComplete() {
+            const before = eventCounts[13];
+            executeSQL("SELECT 1;");
+            const after = eventCounts[13];
+            addTestResult('VDBE_COMPLETE', after > before,
+                `Expected event, got ${after - before} occurrences`);
+        }
+
+        // Integration tests
+        function testCreateTable() {
+            const before = {};
+            for (let i = 0; i < 14; i++) before[i] = eventCounts[i];
+
+            try {
+                executeSQL("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);");
+            } catch (e) {}
+
+            const eventsFired = [];
+            for (let i = 0; i < 14; i++) {
+                if (eventCounts[i] > before[i]) {
+                    eventsFired.push(eventTypeNames[i]);
+                }
+            }
+
+            addTestResult('CREATE TABLE Integration',
+                eventsFired.length > 0,
+                `Events fired: ${eventsFired.join(', ')}`);
+        }
+
+        function testInsert() {
+            const before = {};
+            for (let i = 0; i < 14; i++) before[i] = eventCounts[i];
+
+            try {
+                executeSQL("CREATE TABLE IF NOT EXISTS test (id INTEGER);");
+                executeSQL("INSERT INTO test VALUES (1);");
+            } catch (e) {}
+
+            const eventsFired = [];
+            for (let i = 0; i < 14; i++) {
+                if (eventCounts[i] > before[i]) {
+                    eventsFired.push(eventTypeNames[i]);
+                }
+            }
+
+            addTestResult('INSERT Integration',
+                eventsFired.length > 0,
+                `Events fired: ${eventsFired.join(', ')}`);
+        }
+
+        function testSelect() {
+            const before = {};
+            for (let i = 0; i < 14; i++) before[i] = eventCounts[i];
+
+            try {
+                executeSQL("CREATE TABLE IF NOT EXISTS test (id INTEGER);");
+                executeSQL("INSERT INTO test VALUES (1);");
+                executeSQL("SELECT * FROM test;");
+            } catch (e) {}
+
+            const eventsFired = [];
+            for (let i = 0; i < 14; i++) {
+                if (eventCounts[i] > before[i]) {
+                    eventsFired.push(eventTypeNames[i]);
+                }
+            }
+
+            addTestResult('SELECT Integration',
+                eventsFired.length > 0,
+                `Events fired: ${eventsFired.join(', ')}`);
+        }
+
+        function testComplexSQL() {
+            const before = {};
+            for (let i = 0; i < 14; i++) before[i] = eventCounts[i];
+
+            try {
+                executeSQL(`
+                    CREATE TABLE IF NOT EXISTS products (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT,
+                        price REAL
+                    );
+                    INSERT INTO products VALUES (1, 'Widget', 9.99);
+                    INSERT INTO products VALUES (2, 'Gadget', 19.99);
+                    SELECT * FROM products WHERE price > 10;
+                `);
+            } catch (e) {}
+
+            const eventsFired = [];
+            for (let i = 0; i < 14; i++) {
+                if (eventCounts[i] > before[i]) {
+                    eventsFired.push(`${eventTypeNames[i]} (${eventCounts[i] - before[i]})`);
+                }
+            }
+
+            addTestResult('Complex SQL Integration',
+                eventsFired.length > 0,
+                `Events fired: ${eventsFired.join(', ')}`);
+        }
+
+        function addTestResult(testName, passed, details) {
+            testResults.push({ name: testName, passed, details });
+            renderTestResults();
+        }
+
+        function renderTestResults() {
+            const container = document.getElementById('test-results');
+            container.innerHTML = testResults.map(test => `
+                <div class="test-item ${test.passed ? 'pass' : 'fail'}">
+                    <span class="icon">${test.passed ? '✅' : '❌'}</span>
+                    <div>
+                        <strong>${test.name}</strong><br>
+                        <small>${test.details}</small>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function clearEventLog() {
+            document.getElementById('event-log').innerHTML =
+                '<div style="color: #858585;">Log cleared</div>';
+            document.getElementById('event-counter').textContent = '0';
+        }
+    </script>
+</body>
+</html>

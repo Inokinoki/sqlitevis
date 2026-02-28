@@ -176,6 +176,20 @@ extern void vdbe_complete_event(int result_code);
 
     content = re.sub(exec_return_pattern, add_vdbe_complete_hook, content)
 
+    # Add parse_complete_event to sqlite3_step function
+    # Find sqlite3_step function return pattern (different from sqlite3_exec)
+    step_return_pattern = r'(assert\( v->expired==0 \);\s+\}\s+sqlite3_mutex_leave\(db->mutex\);\s+)#ifdef EMSCRIPTEN\s+vdbe_complete_event\(rc\);\s+#endif\s+(return rc;)'
+
+    def add_parse_complete_to_step(match):
+        before_return = match.group(1)
+        return_stmt = match.group(2)
+        if 'parse_complete_event' not in before_return:
+            # Always call parse_complete_event with hardcoded value to avoid any compiler issues
+            return before_return + '#ifdef EMSCRIPTEN\n  vdbe_complete_event(rc);\n  parse_complete_event(1);\n#endif\n  ' + return_stmt
+        return match.group(0)
+
+    content = re.sub(step_return_pattern, add_parse_complete_to_step, content)
+
     print("  └─ Adding VDBE hooks...")
 
     # Instrument opcode execution loop
@@ -218,7 +232,7 @@ extern void parse_complete_event(int success);
                 count=1
             )
 
-    # Instrument sqlite3RunParser
+    # Instrument sqlite3RunParser - add parse_start_event
     parser_pattern = r'(int sqlite3RunParser\([^)]+\)[^{]*\{[^}]{0,200})'
 
     def add_parser_start(match):
@@ -232,6 +246,23 @@ extern void parse_complete_event(int success);
         return func_start
 
     content = re.sub(parser_pattern, add_parser_start, content, flags=re.DOTALL)
+
+    # Add parse_complete_event before return statement in sqlite3RunParser
+    # Pattern: finds "return nErr;" that comes after db->pParse = pParentParse
+    parser_return_pattern = r'(db->pParse = pParentParse;\s+assert\s*\([^)]+\)\s*)(return nErr;)'
+
+    def add_parser_complete(match):
+        before_return = match.group(1)
+        return_stmt = match.group(2)
+        if 'parse_complete_event' not in before_return:
+            return before_return + '''
+#ifdef EMSCRIPTEN
+  parse_complete_event(nErr == 0);
+#endif
+''' + return_stmt
+        return before_return + return_stmt
+
+    content = re.sub(parser_return_pattern, add_parser_complete, content, flags=re.DOTALL)
 
     return content
 

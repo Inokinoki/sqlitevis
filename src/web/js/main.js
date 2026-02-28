@@ -66,6 +66,13 @@ class SQLiteVisApp {
      * Setup lazy loading of visualizer when canvas is scrolled into view
      */
     setupLazyVisualizer() {
+        // Check if BTreeVisualizer class exists before trying to use it
+        if (typeof BTreeVisualizer === 'undefined') {
+            // Visualizer not loaded, skip initialization
+            console.log('Visualizer not loaded - skipping visualization setup');
+            return;
+        }
+
         // Use IntersectionObserver to lazy load visualizer
         if ('IntersectionObserver' in window) {
             const observer = new IntersectionObserver((entries) => {
@@ -299,25 +306,33 @@ class SQLiteVisApp {
             eventManager.autoScroll = e.target.checked;
         });
 
-        // View mode selector
-        document.getElementById('view-mode').addEventListener('change', (e) => {
-            this.visualizer.setViewMode(e.target.value);
-        });
+        // View mode selector - ONLY if visualizer exists
+        const viewModeSelect = document.getElementById('view-mode');
+        if (viewModeSelect && this.visualizer) {
+            viewModeSelect.addEventListener('change', (e) => {
+                this.visualizer.setViewMode(e.target.value);
+            });
+        }
 
-        // Show transitions checkbox
-        document.getElementById('show-transitions').addEventListener('change', (e) => {
-            this.visualizer.setShowTransitions(e.target.checked);
-        });
+        // Show transitions checkbox - ONLY if visualizer exists
+        const showTransitionsCheck = document.getElementById('show-transitions');
+        if (showTransitionsCheck && this.visualizer) {
+            showTransitionsCheck.addEventListener('change', (e) => {
+                this.visualizer.setShowTransitions(e.target.checked);
+            });
+        }
 
-        // Animation speed slider
+        // Animation speed slider - ONLY if visualizer exists
         const speedSlider = document.getElementById('animation-speed');
         const speedValue = document.getElementById('speed-value');
 
-        speedSlider.addEventListener('input', (e) => {
-            const speed = parseFloat(e.target.value);
-            this.visualizer.setAnimationSpeed(speed);
-            speedValue.textContent = speed.toFixed(1) + 'x';
-        });
+        if (speedSlider && this.visualizer) {
+            speedSlider.addEventListener('input', (e) => {
+                const speed = parseFloat(e.target.value);
+                this.visualizer.setAnimationSpeed(speed);
+                speedValue.textContent = speed.toFixed(1) + 'x';
+            });
+        }
 
         // Step button
         document.getElementById('step-btn').addEventListener('click', () => {
@@ -406,11 +421,12 @@ class SQLiteVisApp {
     }
 
     /**
-     * Show output in the output panel
+     * Show output in the output panel (optimized - avoids innerHTML)
      */
     showOutput(content, type = 'text') {
         const outputDiv = document.getElementById('output');
-        outputDiv.innerHTML = content;
+        // Much faster than innerHTML - uses textContent
+        outputDiv.textContent = content;
 
         if (type === 'error') {
             outputDiv.style.color = 'var(--danger-color)';
@@ -422,11 +438,19 @@ class SQLiteVisApp {
     }
 
     /**
-     * Clear output panel
+     * Clear output panel (optimized - avoids innerHTML)
      */
     clearOutput() {
         const outputDiv = document.getElementById('output');
-        outputDiv.innerHTML = '<p class="placeholder">Results will appear here...</p>';
+        // Clear all children efficiently
+        while (outputDiv.firstChild) {
+            outputDiv.removeChild(outputDiv.firstChild);
+        }
+        // Add placeholder
+        const placeholder = document.createElement('p');
+        placeholder.className = 'placeholder';
+        placeholder.textContent = 'Results will appear here...';
+        outputDiv.appendChild(placeholder);
     }
 
     /**

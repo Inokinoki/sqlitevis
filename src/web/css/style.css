@@ -142,7 +142,8 @@ section h2 {
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    /* Remove transition for better performance */
+    transition: background-color 0.1s;
 }
 
 .btn-primary {
@@ -152,8 +153,7 @@ section h2 {
 
 .btn-primary:hover {
     background: #1d4ed8;
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-lg);
+    /* Remove transform for better performance */
 }
 
 .btn-secondary {
@@ -234,11 +234,12 @@ section h2 {
     overflow-y: auto;
     font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
     font-size: 0.8rem;
-    /* Performance optimization - use containment for better rendering */
-    contain: layout style paint;
-    /* Enable content-visibility for better performance with many events */
-    content-visibility: auto;
-    contain-intrinsic-size: auto 500px;
+    /* ULTRA Performance optimization - simplify rendering */
+    contain: strict;
+    /* Force hardware acceleration */
+    transform: translateZ(0);
+    /* Improve scroll performance */
+    overflow-anchor: none;
 }
 
 .event-item {
@@ -247,9 +248,10 @@ section h2 {
     border-left: 3px solid;
     background: var(--bg-primary);
     border-radius: 3px;
-    /* Performance optimization - use containment to reduce reflow scope */
-    contain: layout style;
-    /* Remove will-change to avoid GPU memory overuse */
+    /* ULTRA Performance optimization - minimize reflow */
+    contain: layout;
+    /* Use simpler border for faster rendering */
+    will-change: auto;
 }
 
 .event-item.event-btree {
@@ -312,9 +314,12 @@ section h2 {
     background: var(--bg-secondary);
     cursor: crosshair;
     display: block;
-    /* Performance optimization - use containment for better rendering */
-    contain: layout style paint;
-    /* Remove will-change to avoid GPU memory overuse */
+    /* ULTRA Performance optimization */
+    contain: strict;
+    /* Force GPU acceleration for canvas */
+    transform: translateZ(0);
+    /* Prevent subpixel antialiasing for faster rendering */
+    image-rendering: pixelated;
 }
 
 /* Node Info Panel */

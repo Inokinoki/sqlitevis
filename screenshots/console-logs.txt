@@ -1,0 +1,44 @@
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}
+[DEBUG] Event type 11: {"parseType":"start"}
+[DEBUG] Found parse_start_event!
+[DEBUG] Event type 11: {"numOpcodes":5}
+[DEBUG] Event type 6: {"page":1,"type":1}
+[C] vdbe_complete_event called with result: 100
+[DEBUG] Event type 13: {"resultCode":100}
+[DEBUG] Event type 6: {"parseType":"complete"}
+[DEBUG] Found parse_complete_event!
+[C] vdbe_complete_event called with result: 101
+[DEBUG] Event type 13: {"resultCode":101}
+[DEBUG] Event type 6: {"parseType":"complete"}
+[DEBUG] Found parse_complete_event!
+[C] vdbe_complete_event called with result: 0
+[DEBUG] Event type 13: {"resultCode":0}

@@ -5,22 +5,27 @@
 
 class PerformanceMonitor {
     constructor() {
-        this.enabled = false;
+        this.enabled = false; // DISABLED by default to reduce overhead
         this.fps = 0;
         this.frameCount = 0;
         this.lastFrameTime = performance.now();
         this.fpsHistory = [];
+        this.maxHistoryLength = 120; // Keep 2 minutes of history at 1-second intervals
 
         this.renderTimes = [];
         this.avgRenderTime = 0;
+        this.maxRenderTime = 0;
+        this.minRenderTime = Infinity;
 
         this.eventCount = 0;
         this.lastEventTime = performance.now();
         this.eventsPerSecond = 0;
 
         this.memoryUsage = 0;
+        this.memoryHistory = [];
 
         this._updateInterval = null;
+        this._displayElement = null;
     }
 
     /**
@@ -46,9 +51,10 @@ class PerformanceMonitor {
      * Start monitoring loop
      */
     _startMonitoring() {
+        // Update metrics every 500ms for more responsive feedback
         this._updateInterval = setInterval(() => {
             this._updateMetrics();
-        }, 1000);
+        }, 500);
     }
 
     /**
@@ -95,6 +101,10 @@ class PerformanceMonitor {
                 this.renderTimes.shift();
             }
             this.avgRenderTime = this.renderTimes.reduce((a, b) => a + b, 0) / this.renderTimes.length;
+
+            // Track min/max render times
+            if (renderTime > this.maxRenderTime) this.maxRenderTime = renderTime;
+            if (renderTime < this.minRenderTime) this.minRenderTime = renderTime;
         }
     }
 
@@ -124,7 +134,7 @@ class PerformanceMonitor {
     }
 
     /**
-     * Update on-screen display
+     * Update on-screen display with enhanced metrics
      */
     _updateDisplay() {
         let statsEl = document.getElementById('perf-stats');
@@ -135,24 +145,38 @@ class PerformanceMonitor {
                 position: fixed;
                 top: 10px;
                 right: 10px;
-                background: rgba(0, 0, 0, 0.8);
+                background: rgba(0, 0, 0, 0.85);
                 color: #0f0;
-                padding: 10px;
-                font-family: monospace;
-                font-size: 12px;
-                border-radius: 4px;
+                padding: 12px;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 11px;
+                border-radius: 6px;
                 z-index: 10000;
                 pointer-events: none;
+                line-height: 1.6;
+                min-width: 150px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             `;
             document.body.appendChild(statsEl);
+            this._displayElement = statsEl;
         }
 
         const report = this.getReport();
+
+        // Color-code FPS
+        const fpsColor = report.fps >= 50 ? '#0f0' : report.fps >= 30 ? '#ff0' : '#f00';
+        const avgFpsColor = report.avgFps >= 50 ? '#0f0' : report.avgFps >= 30 ? '#ff0' : '#f00';
+        const renderColor = report.avgRenderTime < 20 ? '#0f0' : report.avgRenderTime < 35 ? '#ff0' : '#f00';
+
         statsEl.innerHTML = `
-            <div>FPS: ${report.fps} (avg: ${report.avgFps})</div>
-            <div>Render: ${report.avgRenderTime}ms</div>
-            <div>Events: ${report.eventsPerSecond}/s</div>
-            ${report.memoryUsage ? `<div>Memory: ${report.memoryUsage}MB</div>` : ''}
+            <div style="border-bottom: 1px solid #333; padding-bottom: 4px; margin-bottom: 4px; font-weight: bold;">
+                Performance
+            </div>
+            <div><span style="color: ${fpsColor}">FPS:</span> ${report.fps} <span style="color: #666">(avg: <span style="color: ${avgFpsColor}">${report.avgFps}</span>)</span></div>
+            <div><span style="color: ${renderColor}">Render:</span> ${report.avgRenderTime}ms</div>
+            <div><span style="color: #0ff">Events:</span> ${report.eventsPerSecond}/s</div>
+            ${report.memoryUsage ? `<div><span style="color: #f0f">Memory:</span> ${report.memoryUsage}MB</div>` : ''}
+            ${this.maxRenderTime > 0 ? `<div style="color: #666; font-size: 10px;">Peak: ${this.maxRenderTime.toFixed(1)}ms</div>` : ''}
         `;
     }
 
@@ -173,5 +197,6 @@ class PerformanceMonitor {
 // Global performance monitor instance
 const perfMonitor = new PerformanceMonitor();
 
-// Enable via console: perfMonitor.enable()
+// NOTE: Performance monitoring is DISABLED by default to reduce overhead
+// To enable for debugging, run in console: perfMonitor.enable()
 // Or: window.perfMonitor.enable()

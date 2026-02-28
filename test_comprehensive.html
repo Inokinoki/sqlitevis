@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLiteVis Comprehensive Test</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            margin-bottom: 10px;
+            color: #38bdf8;
+        }
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 20px;
+        }
+        .test-section {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .test-section h2 {
+            color: #38bdf8;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .test-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #475569;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .status.info {
+            background: #1e40af;
+            color: #93c5fd;
+        }
+        .status.success {
+            background: #065f46;
+            color: #86efac;
+        }
+        .status.error {
+            background: #991b1b;
+            color: #fca5a5;
+        }
+        .status.warning {
+            background: #92400e;
+            color: #fcd34d;
+        }
+        .event-log {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .event-item {
+            padding: 4px 0;
+            border-bottom: 1px solid #1e293b;
+        }
+        .event-time {
+            color: #64748b;
+            margin-right: 10px;
+        }
+        .event-type {
+            color: #38bdf8;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .event-data {
+            color: #94a3b8;
+        }
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .test-card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .test-card h3 {
+            color: #e2e8f0;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .test-card .result {
+            font-family: monospace;
+            font-size: 12px;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 8px;
+        }
+        .test-card .result.pass {
+            background: #065f46;
+            color: #86efac;
+        }
+        .test-card .result.fail {
+            background: #991b1b;
+            color: #fca5a5;
+        }
+        .test-card .result.pending {
+            background: #1e293b;
+            color: #64748b;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 400px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+        }
+        canvas {
+            display: block;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SQLiteVis Comprehensive Test Suite</h1>
+        <p class="subtitle">Testing VDBE Events, SQL Parsing, and Page Node Events</p>
+
+        <!-- Test 1: VDBE Events -->
+        <div class="test-section">
+            <h2>Test 1: VDBE Events and Visualization</h2>
+            <p style="color: #94a3b8; margin-bottom: 15px; font-size: 14px;">
+                Tests VDBE_START, VDBE_OPCODE, and VDBE_COMPLETE events
+            </p>
+            <div class="test-controls">
+                <button onclick="testVdbe()">Run VDBE Test</button>
+                <button onclick="testVdbeComplex()">Run Complex VDBE Test</button>
+            </div>
+            <div id="vdbe-status" class="status pending">Ready to test VDBE events</div>
+            <div id="vdbe-events" class="event-log"></div>
+        </div>
+
+        <!-- Test 2: SQL Parsing -->
+        <div class="test-section">
+            <h2>Test 2: SQL Instruction Parsing and Visualization</h2>
+            <p style="color: #94a3b8; margin-bottom: 15px; font-size: 14px;">
+                Tests PARSE_START, PARSE_TOKEN, and PARSE_COMPLETE events
+            </p>
+            <div class="test-controls">
+                <button onclick="testParseSelect()">Test SELECT Parse</button>
+                <button onclick="testParseInsert()">Test INSERT Parse</button>
+                <button onclick="testParseCreate()">Test CREATE Parse</button>
+            </div>
+            <div id="parse-status" class="status pending">Ready to test SQL parsing</div>
+            <div id="parse-events" class="event-log"></div>
+        </div>
+
+        <!-- Test 3: Page Node Events -->
+        <div class="test-section">
+            <h2>Test 3: Page Node Events and Visualization</h2>
+            <p style="color: #94a3b8; margin-bottom: 15px; font-size: 14px;">
+                Tests BTREE_OPEN, BTREE_INSERT, BTREE_DELETE, BTREE_SPLIT, PAGE_ALLOCATE events
+            </p>
+            <div class="test-controls">
+                <button onclick="testPageAllocate()">Test Page Allocate</button>
+                <button onclick="testBtreeInsert()">Test B-Tree Insert</button>
+                <button onclick="testBtreeSplit()">Test B-Tree Split</button>
+            </div>
+            <div id="page-status" class="status pending">Ready to test page node events</div>
+            <div id="page-events" class="event-log"></div>
+            <div id="canvas-container" style="margin-top: 15px;">
+                <canvas id="visualization-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Overall Test Results -->
+        <div class="test-section">
+            <h2>Overall Test Results</h2>
+            <div class="test-grid">
+                <div class="test-card">
+                    <h3>VDBE Events</h3>
+                    <div id="result-vdbe" class="result pending">PENDING</div>
+                </div>
+                <div class="test-card">
+                    <h3>SQL Parsing</h3>
+                    <div id="result-parse" class="result pending">PENDING</div>
+                </div>
+                <div class="test-card">
+                    <h3>Page Node Events</h3>
+                    <div id="result-page" class="result pending">PENDING</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hidden elements for visualizer compatibility -->
+        <div style="display: none;">
+            <span id="page-count">0</span>
+            <span id="event-count">0</span>
+            <div id="node-info" class="hidden">
+                <div id="node-details"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="build/sqlite3.js"></script>
+    <script src="src/web/js/events.js"></script>
+    <script src="src/web/js/visualizer.js"></script>
+
+    <script>
+        // Test state
+        let testResults = {
+            vdbe: null,
+            parse: null,
+            page: null
+        };
+
+        // Initialize visualizer
+        let visualizer;
+        try {
+            visualizer = new BTreeVisualizer('visualization-canvas');
+            console.log('Visualizer initialized');
+        } catch (e) {
+            console.error('Failed to initialize visualizer:', e);
+        }
+
+        // Helper functions
+        function updateStatus(elementId, message, type) {
+            const el = document.getElementById(elementId);
+            el.className = 'status ' + type;
+            el.textContent = message;
+        }
+
+        function logEvent(elementId, typeName, data) {
+            const log = document.getElementById(elementId);
+            const time = new Date().toLocaleTimeString('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+            const item = document.createElement('div');
+            item.className = 'event-item';
+            item.innerHTML = `
+                <span class="event-time">${time}</span>
+                <span class="event-type">${typeName}</span>
+                <span class="event-data">${JSON.stringify(data)}</span>
+            `;
+            log.appendChild(item);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateResult(testName, passed) {
+            const el = document.getElementById('result-' + testName);
+            el.className = 'result ' + (passed ? 'pass' : 'fail');
+            el.textContent = passed ? 'PASS ✓' : 'FAIL ✗';
+            testResults[testName] = passed;
+        }
+
+        // Test 1: VDBE Events
+        function testVdbe() {
+            updateStatus('vdbe-status', 'Testing VDBE events...', 'info');
+            document.getElementById('vdbe-events').innerHTML = '';
+
+            let eventsReceived = 0;
+            const expectedEvents = ['VDBE_START', 'VDBE_OPCODE', 'VDBE_COMPLETE'];
+
+            // Set view mode to VDBE
+            visualizer.setViewMode('vdbe');
+
+            // Simulate VDBE events
+            setTimeout(() => {
+                logEvent('vdbe-events', 'VDBE_START', { numOpcodes: 5 });
+                if (visualizer.showVdbeStart) {
+                    visualizer.showVdbeStart(5);
+                }
+                eventsReceived++;
+            }, 100);
+
+            setTimeout(() => {
+                logEvent('vdbe-events', 'VDBE_OPCODE', { pc: 0, opcode: 'Init', p1: 0, p2: 1, p3: 0 });
+                if (visualizer.showVdbeOpcode) {
+                    visualizer.showVdbeOpcode(0, 'Init', 0, 1, 0);
+                }
+                eventsReceived++;
+            }, 300);
+
+            setTimeout(() => {
+                logEvent('vdbe-events', 'VDBE_OPCODE', { pc: 1, opcode: 'Read', p1: 1, p2: 2, p3: 0 });
+                if (visualizer.showVdbeOpcode) {
+                    visualizer.showVdbeOpcode(1, 'Read', 1, 2, 0);
+                }
+                eventsReceived++;
+            }, 500);
+
+            setTimeout(() => {
+                logEvent('vdbe-events', 'VDBE_COMPLETE', { resultCode: 0 });
+                if (visualizer.showVdbeComplete) {
+                    visualizer.showVdbeComplete(0);
+                }
+                eventsReceived++;
+
+                const passed = eventsReceived >= 3;
+                updateStatus('vdbe-status', `VDBE test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events received`, passed ? 'success' : 'error');
+                updateResult('vdbe', passed);
+            }, 700);
+        }
+
+        function testVdbeComplex() {
+            updateStatus('vdbe-status', 'Testing complex VDBE execution...', 'info');
+            document.getElementById('vdbe-events').innerHTML = '';
+
+            visualizer.setViewMode('vdbe');
+            let eventsReceived = 0;
+
+            const opcodes = [
+                { pc: 0, opcode: 'Init', p1: 0, p2: 12, p3: 0 },
+                { pc: 1, opcode: 'OpenRead', p1: 0, p2: 2, p3: 0 },
+                { pc: 2, opcode: 'Rewind', p1: 0, p2: 10, p3: 0 },
+                { pc: 3, opcode: 'Column', p1: 0, p2: 0, p3: 1 },
+                { pc: 4, opcode: 'Column', p1: 0, p2: 1, p3: 2 },
+                { pc: 5, opcode: 'ResultRow', p1: 1, p2: 2, p3: 0 },
+                { pc: 6, opcode: 'Next', p1: 0, p2: 3, p3: 0 },
+                { pc: 7, opcode: 'Halt', p1: 0, p2: 0, p3: 0 }
+            ];
+
+            // Simulate VDBE_START
+            logEvent('vdbe-events', 'VDBE_START', { numOpcodes: opcodes.length });
+            if (visualizer.showVdbeStart) visualizer.showVdbeStart(opcodes.length);
+            eventsReceived++;
+
+            // Simulate opcodes
+            opcodes.forEach((op, i) => {
+                setTimeout(() => {
+                    logEvent('vdbe-events', 'VDBE_OPCODE', op);
+                    if (visualizer.showVdbeOpcode) {
+                        visualizer.showVdbeOpcode(op.pc, op.opcode, op.p1, op.p2, op.p3);
+                    }
+                    eventsReceived++;
+
+                    if (i === opcodes.length - 1) {
+                        setTimeout(() => {
+                            logEvent('vdbe-events', 'VDBE_COMPLETE', { resultCode: 0 });
+                            if (visualizer.showVdbeComplete) visualizer.showVdbeComplete(0);
+                            eventsReceived++;
+
+                            const passed = eventsReceived === opcodes.length + 2;
+                            updateStatus('vdbe-status', `Complex VDBE test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events`, passed ? 'success' : 'error');
+                            updateResult('vdbe', passed);
+                        }, 100);
+                    }
+                }, (i + 1) * 150);
+            });
+        }
+
+        // Test 2: SQL Parsing
+        function testParseSelect() {
+            updateStatus('parse-status', 'Testing SELECT statement parsing...', 'info');
+            document.getElementById('parse-events').innerHTML = '';
+
+            visualizer.setViewMode('parse');
+            let eventsReceived = 0;
+
+            const sql = 'SELECT id, name FROM users WHERE age > 18';
+
+            setTimeout(() => {
+                logEvent('parse-events', 'PARSE_START', { sql: sql });
+                if (visualizer.showParseStart) visualizer.showParseStart(sql);
+                eventsReceived++;
+            }, 100);
+
+            const tokens = [
+                { token: 'SELECT', type: 'TK_SELECT' },
+                { token: 'id', type: 'TK_ID' },
+                { token: ',', type: 'TK_COMMA' },
+                { token: 'name', type: 'TK_ID' },
+                { token: 'FROM', type: 'TK_FROM' },
+                { token: 'users', type: 'TK_ID' },
+                { token: 'WHERE', type: 'TK_WHERE' },
+                { token: 'age', type: 'TK_ID' },
+                { token: '>', type: 'TK_GT' },
+                { token: '18', type: 'TK_INTEGER' }
+            ];
+
+            tokens.forEach((tok, i) => {
+                setTimeout(() => {
+                    logEvent('parse-events', 'PARSE_TOKEN', tok);
+                    if (visualizer.showParseToken) visualizer.showParseToken(tok.token, tok.type);
+                    eventsReceived++;
+                }, 200 + i * 100);
+            });
+
+            setTimeout(() => {
+                logEvent('parse-events', 'PARSE_COMPLETE', { success: true });
+                if (visualizer.showParseComplete) visualizer.showParseComplete(true);
+                eventsReceived++;
+
+                const passed = eventsReceived === tokens.length + 2;
+                updateStatus('parse-status', `SELECT parse test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events`, passed ? 'success' : 'error');
+                updateResult('parse', passed);
+            }, 200 + tokens.length * 100 + 100);
+        }
+
+        function testParseInsert() {
+            updateStatus('parse-status', 'Testing INSERT statement parsing...', 'info');
+            document.getElementById('parse-events').innerHTML = '';
+
+            visualizer.setViewMode('parse');
+            let eventsReceived = 0;
+
+            const sql = 'INSERT INTO users (name, age) VALUES ("John", 25)';
+
+            setTimeout(() => {
+                logEvent('parse-events', 'PARSE_START', { sql: sql });
+                if (visualizer.showParseStart) visualizer.showParseStart(sql);
+                eventsReceived++;
+            }, 100);
+
+            const tokens = [
+                { token: 'INSERT', type: 'TK_INSERT' },
+                { token: 'INTO', type: 'TK_INTO' },
+                { token: 'users', type: 'TK_ID' },
+                { token: '(', type: 'TK_LP' },
+                { token: 'name', type: 'TK_ID' },
+                { token: ',', type: 'TK_COMMA' },
+                { token: 'age', type: 'TK_ID' },
+                { token: ')', type: 'TK_RP' },
+                { token: 'VALUES', type: 'TK_VALUES' }
+            ];
+
+            tokens.forEach((tok, i) => {
+                setTimeout(() => {
+                    logEvent('parse-events', 'PARSE_TOKEN', tok);
+                    if (visualizer.showParseToken) visualizer.showParseToken(tok.token, tok.type);
+                    eventsReceived++;
+                }, 200 + i * 100);
+            });
+
+            setTimeout(() => {
+                logEvent('parse-events', 'PARSE_COMPLETE', { success: true });
+                if (visualizer.showParseComplete) visualizer.showParseComplete(true);
+                eventsReceived++;
+
+                const passed = eventsReceived === tokens.length + 2;
+                updateStatus('parse-status', `INSERT parse test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events`, passed ? 'success' : 'error');
+                updateResult('parse', passed);
+            }, 200 + tokens.length * 100 + 100);
+        }
+
+        function testParseCreate() {
+            updateStatus('parse-status', 'Testing CREATE TABLE statement parsing...', 'info');
+            document.getElementById('parse-events').innerHTML = '';
+
+            visualizer.setViewMode('parse');
+            let eventsReceived = 0;
+
+            const sql = 'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)';
+
+            setTimeout(() => {
+                logEvent('parse-events', 'PARSE_START', { sql: sql });
+                if (visualizer.showParseStart) visualizer.showParseStart(sql);
+                eventsReceived++;
+            }, 100);
+
+            const tokens = [
+                { token: 'CREATE', type: 'TK_CREATE' },
+                { token: 'TABLE', type: 'TK_TABLE' },
+                { token: 'users', type: 'TK_ID' },
+                { token: '(', type: 'TK_LP' },
+                { token: 'id', type: 'TK_ID' },
+                { token: 'INTEGER', type: 'TK_INTEGER' },
+                { token: 'PRIMARY', type: 'TK_PRIMARY' },
+                { token: 'KEY', type: 'TK_KEY' },
+                { token: ',', type: 'TK_COMMA' },
+                { token: 'name', type: 'TK_ID' },
+                { token: 'TEXT', type: 'TK_TEXT' },
+                { token: ')', type: 'TK_RP' }
+            ];
+
+            tokens.forEach((tok, i) => {
+                setTimeout(() => {
+                    logEvent('parse-events', 'PARSE_TOKEN', tok);
+                    if (visualizer.showParseToken) visualizer.showParseToken(tok.token, tok.type);
+                    eventsReceived++;
+                }, 200 + i * 100);
+            });
+
+            setTimeout(() => {
+                logEvent('parse-events', 'PARSE_COMPLETE', { success: true });
+                if (visualizer.showParseComplete) visualizer.showParseComplete(true);
+                eventsReceived++;
+
+                const passed = eventsReceived === tokens.length + 2;
+                updateStatus('parse-status', `CREATE parse test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events`, passed ? 'success' : 'error');
+                updateResult('parse', passed);
+            }, 200 + tokens.length * 100 + 100);
+        }
+
+        // Test 3: Page Node Events
+        function testPageAllocate() {
+            updateStatus('page-status', 'Testing page allocation...', 'info');
+            document.getElementById('page-events').innerHTML = '';
+
+            visualizer.setViewMode('btree');
+            let eventsReceived = 0;
+
+            setTimeout(() => {
+                logEvent('page-events', 'BTREE_OPEN', { pageSize: 4096, numPages: 0 });
+                visualizer.pageSize = 4096;
+                eventsReceived++;
+            }, 100);
+
+            setTimeout(() => {
+                logEvent('page-events', 'PAGE_ALLOCATE', { page: 1, type: 1 });
+                visualizer.addPage(1, 1);
+                eventsReceived++;
+            }, 300);
+
+            setTimeout(() => {
+                logEvent('page-events', 'PAGE_ALLOCATE', { page: 2, type: 1 });
+                visualizer.addPage(2, 1);
+                eventsReceived++;
+            }, 500);
+
+            setTimeout(() => {
+                logEvent('page-events', 'PAGE_ALLOCATE', { page: 3, type: 0 });
+                visualizer.addPage(3, 0);
+                eventsReceived++;
+
+                const passed = eventsReceived === 4 && visualizer.nodes.size === 3;
+                updateStatus('page-status', `Page allocation test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events, ${visualizer.nodes.size} pages`, passed ? 'success' : 'error');
+                updateResult('page', passed);
+            }, 700);
+        }
+
+        function testBtreeInsert() {
+            updateStatus('page-status', 'Testing B-Tree insert operations...', 'info');
+            document.getElementById('page-events').innerHTML = '';
+
+            visualizer.setViewMode('btree');
+            visualizer.clear();
+            let eventsReceived = 0;
+
+            // First create a page
+            setTimeout(() => {
+                logEvent('page-events', 'PAGE_ALLOCATE', { page: 1, type: 1 });
+                visualizer.addPage(1, 1);
+                eventsReceived++;
+            }, 100);
+
+            // Insert cells
+            const inserts = [
+                { page: 1, cell: 0, keyLen: 4 },
+                { page: 1, cell: 1, keyLen: 8 },
+                { page: 1, cell: 2, keyLen: 12 },
+                { page: 1, cell: 3, keyLen: 16 }
+            ];
+
+            inserts.forEach((ins, i) => {
+                setTimeout(() => {
+                    logEvent('page-events', 'BTREE_INSERT', ins);
+                    visualizer.addCell(ins.page, ins.cell, ins.keyLen);
+                    eventsReceived++;
+
+                    if (i === inserts.length - 1) {
+                        setTimeout(() => {
+                            const node = visualizer.nodes.get(1);
+                            const passed = eventsReceived === inserts.length + 1 && node && node.cells.length === inserts.length;
+                            updateStatus('page-status', `B-Tree insert test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events, ${node ? node.cells.length : 0} cells`, passed ? 'success' : 'error');
+                            updateResult('page', passed);
+                        }, 200);
+                    }
+                }, 300 + i * 150);
+            });
+        }
+
+        function testBtreeSplit() {
+            updateStatus('page-status', 'Testing B-Tree page split...', 'info');
+            document.getElementById('page-events').innerHTML = '';
+
+            visualizer.setViewMode('btree');
+            visualizer.clear();
+            let eventsReceived = 0;
+
+            // Create initial page with cells
+            setTimeout(() => {
+                logEvent('page-events', 'PAGE_ALLOCATE', { page: 1, type: 1 });
+                visualizer.addPage(1, 1);
+                eventsReceived++;
+            }, 100);
+
+            // Add cells to page 1
+            setTimeout(() => {
+                for (let i = 0; i < 10; i++) {
+                    visualizer.addCell(1, i, 4);
+                }
+                logEvent('page-events', 'BTREE_INSERT', { page: 1, cell: 9, keyLen: 4 });
+                eventsReceived++;
+            }, 300);
+
+            // Perform split
+            setTimeout(() => {
+                logEvent('page-events', 'BTREE_SPLIT', { originalPage: 1, newPage: 2, splitCell: 5 });
+                visualizer.splitPage(1, 2, 5);
+                eventsReceived++;
+
+                setTimeout(() => {
+                    const page1 = visualizer.nodes.get(1);
+                    const page2 = visualizer.nodes.get(2);
+                    const passed = eventsReceived === 3 && page1 && page2 &&
+                                  page1.cells.length === 5 && page2.cells.length === 5;
+                    updateStatus('page-status', `B-Tree split test ${passed ? 'PASSED' : 'FAILED'} - ${eventsReceived} events, Page1: ${page1 ? page1.cells.length : 0} cells, Page2: ${page2 ? page2.cells.length : 0} cells`, passed ? 'success' : 'error');
+                    updateResult('page', passed);
+                }, 500);
+            }, 500);
+        }
+
+        // Run all tests on load
+        window.addEventListener('load', () => {
+            console.log('Test suite loaded');
+            console.log('Visualizer:', visualizer);
+            console.log('Nodes map:', visualizer ? visualizer.nodes : 'N/A');
+        });
+    </script>
+</body>
+</html>

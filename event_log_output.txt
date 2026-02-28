@@ -1,0 +1,33 @@
+
+            07:41:29.630
+            PARSE_START
+            sql="SQL Query"
+        
+            07:41:29.631
+            VDBE_START
+            opcodes=5
+        
+            07:41:29.632
+            PAGE_ALLOCATE
+            page=1, type=1
+        
+            07:41:29.766
+            VDBE_COMPLETE
+            result=100
+        
+            07:41:29.767
+            PARSE_COMPLETE
+            success=undefined
+        
+            07:41:29.768
+            VDBE_COMPLETE
+            result=101
+        
+            07:41:29.769
+            PARSE_COMPLETE
+            success=undefined
+        
+            07:41:29.770
+            VDBE_COMPLETE
+            result=0
+        

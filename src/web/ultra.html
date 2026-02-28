@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>SQL</title></head>
+<body>
+<h2>SQLite Test</h2>
+<textarea id="sql" rows="10" cols="80">SELECT 1;</textarea><br><br>
+<button onclick="run()">Execute</button>
+<pre id="out">Loading...</pre>
+
+<script src="build/sqlite3.js"></script>
+<script>
+let db, mod;
+function log(s) { document.getElementById('out').textContent += s + '\n'; }
+
+createSQLiteModule().then(m => {
+    mod = m;
+    const path = ':memory:';
+    const pathPtr = mod._malloc(mod.lengthBytesUTF8(path) + 1);
+    mod.stringToUTF8(path, pathPtr);
+    const dbPtrPtr = mod._malloc(4);
+    mod._sqlite3_open(pathPtr, dbPtrPtr);
+    db = mod.HEAP32[dbPtrPtr >> 2];
+    mod._free(pathPtr);
+    mod._free(dbPtrPtr);
+    log('Ready!');
+}).catch(e => log('Error: ' + e));
+
+function run() {
+    const sql = document.getElementById('sql').value;
+    const sqlPtr = mod._malloc(mod.lengthBytesUTF8(sql) + 1);
+    mod.stringToUTF8(sql, sqlPtr);
+    const errPtr = mod._malloc(4);
+    mod.HEAP32[errPtr >> 2] = 0;
+    const r = mod._sqlite3_exec(db, sqlPtr, 0, 0, errPtr);
+    mod._free(sqlPtr);
+    if (r !== 0) {
+        const errStr = mod.UTF8ToString(mod.HEAP32[errPtr >> 2]);
+        log('Error: ' + errStr);
+    } else {
+        log('Success!');
+    }
+    mod._free(errPtr);
+}
+</script>
+</body>
+</html>

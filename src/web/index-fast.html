@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite Internals Explorer</title>
+    <link rel="stylesheet" href="css/style-fast.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>SQLite Internals Explorer</h1>
+        </header>
+
+        <main>
+            <section id="sql-section">
+                <h2>SQL Editor</h2>
+                <textarea id="sql-input" spellcheck="false">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
+SELECT * FROM users;</textarea>
+                <div class="btn-group">
+                    <button id="execute-btn">Execute</button>
+                    <button id="clear-btn">Clear</button>
+                </div>
+            </section>
+
+            <section id="output-section">
+                <h2>Output</h2>
+                <div id="output"></div>
+            </section>
+
+            <section id="events-section">
+                <h2>Events <button id="clear-events-btn">Clear</button></h2>
+                <div id="event-log"></div>
+            </section>
+        </main>
+
+        <footer>
+            <span id="db-status">Loading...</span> |
+            Events: <span id="event-count">0</span>
+        </footer>
+    </div>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <p>Loading SQLite...</p>
+    </div>
+
+    <script src="build/sqlite3.js"></script>
+    <script src="js/events-fast.js"></script>
+    <script src="js/main-fast.js"></script>
+</body>
+</html>

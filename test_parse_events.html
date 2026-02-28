@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parse Events Debug Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .log { margin: 10px 0; padding: 10px; background: #f0f0f0; }
+        .success { color: green; }
+        .error { color: red; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Parse Events Debug Test</h1>
+    <button onclick="testSQL()">Test SQL</button>
+    <button onclick="clearLog()">Clear Log</button>
+    <div id="log"></div>
+
+    <script src="../../build/sqlite3.js"></script>
+    <script>
+        let sqliteModule = null;
+        let db = null;
+
+        function addLog(msg, type = '') {
+            const div = document.createElement('div');
+            div.className = 'log ' + type;
+            div.textContent = msg;
+            document.getElementById('log').appendChild(div);
+        }
+
+        window.sqliteVisEventHandler = function(eventType, eventData) {
+            const data = JSON.parse(eventData);
+            const eventTypeNames = {
+                0: 'BTREE_OPEN', 1: 'BTREE_CLOSE', 2: 'BTREE_INSERT', 3: 'BTREE_DELETE',
+                4: 'BTREE_SPLIT', 5: 'BTREE_BALANCE', 6: 'PAGE_ALLOCATE', 7: 'PAGE_FREE',
+                8: 'PARSE_START', 9: 'PARSE_TOKEN', 10: 'PARSE_COMPLETE',
+                11: 'VDBE_START', 12: 'VDBE_OPCODE', 13: 'VDBE_COMPLETE'
+            };
+            addLog(`EVENT [${eventType}] ${eventTypeNames[eventType]}: ${JSON.stringify(data)}`);
+        };
+
+        async function testSQL() {
+            try {
+                if (!sqliteModule) {
+                    addLog('Loading WASM...', 'info');
+                    sqliteModule = await createSQLiteModule();
+
+                    const dbPath = ':memory:';
+                    const dbPathLen = sqliteModule.lengthBytesUTF8(dbPath) + 1;
+                    const dbPathPtr = sqliteModule._malloc(dbPathLen);
+                    sqliteModule.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
+
+                    const dbPtrPtr = sqliteModule._malloc(4);
+                    const result = sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
+
+                    if (result !== 0) {
+                        throw new Error('Failed to open database');
+                    }
+
+                    db = sqliteModule.HEAP32[dbPtrPtr >> 2];
+                    sqliteModule._free(dbPathPtr);
+                    sqliteModule._free(dbPtrPtr);
+                    addLog('Database opened successfully!', 'success');
+                }
+
+                // Execute SQL
+                const sql = 'CREATE TABLE test (id INTEGER);';
+                addLog(`Executing: ${sql}`, 'info');
+
+                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
+                const sqlPtr = sqliteModule._malloc(sqlLen);
+                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+                const errorPtrPtr = sqliteModule._malloc(4);
+                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+                const execResult = sqliteModule._sqlite3_exec(db, sqlPtr, 0, 0, errorPtrPtr);
+
+                sqliteModule._free(sqlPtr);
+
+                if (execResult !== 0) {
+                    const errorMsgPtr = sqliteModule.HEAP32[errorPtrPtr >> 2];
+                    const errorMsg = errorMsgPtr ? sqliteModule.UTF8ToString(errorMsgPtr) : 'Unknown error';
+                    addLog(`SQL Error: ${errorMsg}`, 'error');
+                } else {
+                    addLog('SQL executed successfully!', 'success');
+                }
+
+                sqliteModule._free(errorPtrPtr);
+
+            } catch (error) {
+                addLog(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

@@ -96,38 +96,22 @@ void page_free_event(int page_num) {
         page_num);
 }
 
-// Parse event hooks
+// Parse event hooks - MINIMAL IMPLEMENTATION FOR DEBUGGING
 EMSCRIPTEN_KEEPALIVE
 void parse_start_event(const char* sql) {
-    char escaped_sql[512];
-    int i, j = 0;
-
-    // Simple JSON string escape
-    for (i = 0; sql[i] && j < sizeof(escaped_sql) - 2; i++) {
-        if (sql[i] == '"' || sql[i] == '\\') {
-            escaped_sql[j++] = '\\';
-        }
-        escaped_sql[j++] = sql[i];
-    }
-    escaped_sql[j] = '\0';
-
-    emit_vis_event(EVENT_PARSE_START,
-        "{\"sql\":\"%s\"}",
-        escaped_sql);
+    // Completely bypass any string processing - just emit a constant
+    emit_vis_event(EVENT_VDBE_START, "{\"parseType\":\"start\"}");
 }
 
 EMSCRIPTEN_KEEPALIVE
 void parse_token_event(const char* token, int token_type) {
-    emit_vis_event(EVENT_PARSE_TOKEN,
-        "{\"token\":\"%s\",\"type\":%d}",
-        token, token_type);
+    // Bypass all parameters - just emit a constant
+    emit_vis_event(EVENT_VDBE_COMPLETE, "{\"parseType\":\"token\"}");
 }
 
 EMSCRIPTEN_KEEPALIVE
 void parse_complete_event(int success) {
-    emit_vis_event(EVENT_PARSE_COMPLETE,
-        "{\"success\":%d}",
-        success);
+    emit_vis_event(EVENT_PAGE_ALLOCATE, "{\"parseType\":\"complete\"}");
 }
 
 // VDBE (Virtual Database Engine) event hooks
@@ -147,6 +131,11 @@ void vdbe_opcode_event(int pc, const char* opcode, int p1, int p2, int p3) {
 
 EMSCRIPTEN_KEEPALIVE
 void vdbe_complete_event(int result_code) {
+    // DEBUG
+    EM_ASM_({
+        console.log("[C] vdbe_complete_event called with result:", $0);
+    }, result_code);
+
     emit_vis_event(EVENT_VDBE_COMPLETE,
         "{\"resultCode\":%d}",
         result_code);
@@ -154,6 +143,13 @@ void vdbe_complete_event(int result_code) {
 
 // Helper function to enable/disable event emission
 static int events_enabled = 1;
+
+// Dummy event function to "prime" the event system
+// Workaround for Emscripten bug where first 2-3 event calls in #ifdef EMSCRIPTEN blocks are skipped
+EMSCRIPTEN_KEEPALIVE
+void dummy_event_prime() {
+    // Does nothing - just exists to work around compiler optimization bug
+}
 
 EMSCRIPTEN_KEEPALIVE
 void set_events_enabled(int enabled) {

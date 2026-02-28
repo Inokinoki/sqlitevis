@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite Debug Page</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #3e3e42;
+            border-radius: 5px;
+        }
+        .success { color: #4ec9b0; }
+        .error { color: #f48771; }
+        .warning { color: #dcdcaa; }
+        .info { color: #569cd6; }
+        pre {
+            background: #252526;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover { background: #1177bb; }
+        #log {
+            background: #252526;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+        }
+        .log-success { color: #4ec9b0; }
+        .log-error { color: #f48771; }
+        .log-info { color: #569cd6; }
+    </style>
+</head>
+<body>
+    <h1>🔍 SQLite WASM Debug Page</h1>
+
+    <div class="section">
+        <h2>Step 1: Load WASM Module</h2>
+        <button onclick="loadWASM()">Load SQLite WASM</button>
+        <div id="wasm-status" class="info">Not loaded</div>
+    </div>
+
+    <div class="section">
+        <h2>Step 2: Check Exports</h2>
+        <button onclick="checkExports()">Check Available Functions</button>
+        <pre id="exports-list">Click "Load WASM" first</pre>
+    </div>
+
+    <div class="section">
+        <h2>Step 3: Test Database Operations</h2>
+        <button onclick="testOpenDB()">Test sqlite3_open</button>
+        <button onclick="testExec()">Test sqlite3_exec</button>
+        <button onclick="testCloseDB()">Test sqlite3_close</button>
+        <div id="db-status" class="info">No database opened</div>
+    </div>
+
+    <div class="section">
+        <h2>Step 4: Test Event System</h2>
+        <button onclick="testEvents()">Test Event Handler</button>
+        <div id="event-status" class="info">Events not tested</div>
+    </div>
+
+    <div class="section">
+        <h2>Debug Log</h2>
+        <div id="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script src="build/sqlite3.js"></script>
+    <script>
+        let sqliteModule = null;
+        let db = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function loadWASM() {
+            try {
+                log('Starting WASM load...', 'info');
+                document.getElementById('wasm-status').textContent = 'Loading...';
+
+                // Check if createSQLiteModule exists
+                if (typeof createSQLiteModule === 'undefined') {
+                    throw new Error('createSQLiteModule is not defined');
+                }
+
+                log('createSQLiteModule found, calling it...', 'info');
+                sqliteModule = await createSQLiteModule();
+
+                log('WASM module loaded successfully!', 'success');
+                document.getElementById('wasm-status').innerHTML = '<span class="success">✅ WASM Loaded</span>';
+                document.getElementById('wasm-status').className = 'success';
+
+                // Log module info
+                log(`Module type: ${typeof sqliteModule}`, 'info');
+                log(`Has HEAP32: ${!!sqliteModule.HEAP32}`, 'info');
+                log(`Has ccall: ${typeof sqliteModule.ccall}`, 'info');
+                log(`Has cwrap: ${typeof sqliteModule.cwrap}`, 'info');
+
+            } catch (error) {
+                log(`ERROR: ${error.message}`, 'error');
+                document.getElementById('wasm-status').innerHTML = `<span class="error">❌ ${error.message}</span>`;
+                document.getElementById('wasm-status').className = 'error';
+                console.error('Full error:', error);
+            }
+        }
+
+        function checkExports() {
+            if (!sqliteModule) {
+                log('ERROR: Load WASM first!', 'error');
+                return;
+            }
+
+            try {
+                const exports = Object.keys(sqliteModule)
+                    .filter(k => k.startsWith('_') || k.startsWith('HEAP') ||
+                                  k === 'cwrap' || k === 'ccall' ||
+                                  k === 'UTF8ToString' || k === 'stringToUTF8' ||
+                                  k === 'lengthBytesUTF8')
+                    .sort();
+
+                log(`Found ${exports.length} exports`, 'info');
+
+                const grouped = {
+                    'Functions': exports.filter(k => k.startsWith('_')),
+                    'HEAP arrays': exports.filter(k => k.startsWith('HEAP')),
+                    'Helpers': exports.filter(k => !k.startsWith('_') && !k.startsWith('HEAP'))
+                };
+
+                let output = '';
+                for (const [category, items] of Object.entries(grouped)) {
+                    output += `\n${category} (${items.length}):\n`;
+                    output += items.slice(0, 15).join(', ');
+                    if (items.length > 15) output += ', ...';
+                    output += '\n';
+                }
+
+                document.getElementById('exports-list').textContent = output;
+                log('Exports listed above', 'success');
+
+            } catch (error) {
+                log(`ERROR checking exports: ${error.message}`, 'error');
+            }
+        }
+
+        function testOpenDB() {
+            if (!sqliteModule) {
+                log('ERROR: Load WASM first!', 'error');
+                return;
+            }
+
+            try {
+                log('Opening database...', 'info');
+
+                // Allocate memory for database path
+                const dbPath = ':memory:';
+                const dbPathLen = sqliteModule.lengthBytesUTF8(dbPath) + 1;
+                const dbPathPtr = sqliteModule._malloc(dbPathLen);
+                sqliteModule.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
+                log(`Allocated path string at: ${dbPathPtr}`, 'info');
+
+                // Allocate memory for database pointer
+                const dbPtrPtr = sqliteModule._malloc(4);
+                log(`Allocated db pointer at: ${dbPtrPtr}`, 'info');
+
+                // Open database
+                log('Calling sqlite3_open...', 'info');
+                const result = sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
+                log(`sqlite3_open returned: ${result}`, 'info');
+
+                if (result !== 0) {
+                    throw new Error(`sqlite3_open failed with code: ${result}`);
+                }
+
+                // Read database handle
+                db = sqliteModule.HEAP32[dbPtrPtr >> 2];
+                log(`Database handle: ${db}`, 'success');
+
+                // Free memory
+                sqliteModule._free(dbPathPtr);
+                sqliteModule._free(dbPtrPtr);
+
+                document.getElementById('db-status').innerHTML = `<span class="success">✅ Database open (handle: ${db})</span>`;
+                log('Database opened successfully!', 'success');
+
+            } catch (error) {
+                log(`ERROR: ${error.message}`, 'error');
+                document.getElementById('db-status').innerHTML = `<span class="error">❌ ${error.message}</span>`;
+                console.error('Full error:', error);
+            }
+        }
+
+        function testExec() {
+            if (!db || !sqliteModule) {
+                log('ERROR: Open database first!', 'error');
+                return;
+            }
+
+            try {
+                const sql = 'CREATE TABLE test (id INTEGER, name TEXT);';
+                log(`Executing: ${sql}`, 'info');
+
+                // Allocate memory for SQL string
+                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
+                const sqlPtr = sqliteModule._malloc(sqlLen);
+                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+                // Allocate memory for error message
+                const errorPtrPtr = sqliteModule._malloc(4);
+                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+                // Execute SQL
+                log('Calling sqlite3_exec...', 'info');
+                const result = sqliteModule._sqlite3_exec(db, sqlPtr, 0, 0, errorPtrPtr);
+
+                // Free SQL string
+                sqliteModule._free(sqlPtr);
+
+                if (result !== 0) {
+                    // Read error message
+                    const errorMsgPtr = sqliteModule.HEAP32[errorPtrPtr >> 2];
+                    if (errorMsgPtr) {
+                        const errorMsg = sqliteModule.UTF8ToString(errorMsgPtr);
+                        throw new Error(`SQL Error: ${errorMsg}`);
+                    }
+                    throw new Error(`SQL Error code: ${result}`);
+                }
+
+                sqliteModule._free(errorPtrPtr);
+
+                log('SQL executed successfully!', 'success');
+
+            } catch (error) {
+                log(`ERROR: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        function testCloseDB() {
+            if (!db || !sqliteModule) {
+                log('ERROR: No database to close', 'error');
+                return;
+            }
+
+            try {
+                log('Closing database...', 'info');
+                const result = sqliteModule._sqlite3_close(db);
+
+                if (result !== 0) {
+                    throw new Error(`sqlite3_close failed with code: ${result}`);
+                }
+
+                db = null;
+                log('Database closed successfully!', 'success');
+                document.getElementById('db-status').innerHTML = '<span class="info">Database closed</span>';
+
+            } catch (error) {
+                log(`ERROR: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        function testEvents() {
+            log('Testing event handler...', 'info');
+
+            // Register event handler
+            window.sqliteVisEventHandler = (eventType, eventData) => {
+                log(`Event ${eventType}: ${eventData}`, 'info');
+            };
+
+            // Emit test event
+            log('Emitting test event...', 'info');
+            window.sqliteVisEventHandler(0, '{"test": "data"}');
+
+            document.getElementById('event-status').innerHTML = '<span class="success">✅ Event handler registered</span>';
+            log('Event handler test complete', 'success');
+        }
+
+        // Auto-load on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            log('Debug page loaded', 'info');
+            log('Click "Load WASM" to begin', 'info');
+        });
+    </script>
+</body>
+</html>

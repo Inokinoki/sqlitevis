@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Event Test</title>
+</head>
+<body>
+    <h1>Event Test Page</h1>
+    <button onclick="testSQL()">Execute SQL</button>
+    <pre id="output"></pre>
+
+    <script src="../../build/sqlite3.js"></script>
+    <script>
+        let module = null;
+        let db = null;
+        let eventCount = 0;
+
+        window.sqliteVisEventHandler = (eventType, eventData) => {
+            eventCount++;
+            const names = ['BTREE_OPEN', 'BTREE_CLOSE', 'BTREE_INSERT', 'BTREE_DELETE', 'BTREE_SPLIT', 'BTREE_BALANCE',
+                          'PAGE_ALLOCATE', 'PAGE_FREE', 'PARSE_START', 'PARSE_TOKEN', 'PARSE_COMPLETE',
+                          'VDBE_START', 'VDBE_OPCODE', 'VDBE_COMPLETE'];
+            log(`Event ${eventCount}: ${names[eventType]} - ${eventData}`);
+        };
+
+        function log(msg) {
+            const pre = document.getElementById('output');
+            pre.textContent += msg + '\n';
+            console.log(msg);
+        }
+
+        async function testSQL() {
+            try {
+                if (!module) {
+                    log('Loading module...');
+                    module = await createSQLiteModule();
+                    log('Module loaded');
+
+                    // Open database
+                    const dbPath = ':memory:';
+                    const dbPathLen = module.lengthBytesUTF8(dbPath) + 1;
+                    const dbPathPtr = module._malloc(dbPathLen);
+                    module.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
+
+                    const dbPtrPtr = module._malloc(4);
+                    const result = module._sqlite3_open(dbPathPtr, dbPtrPtr);
+
+                    if (result !== 0) {
+                        throw new Error('Failed to open database: ' + result);
+                    }
+
+                    db = module.HEAP32[dbPtrPtr >> 2];
+                    module._free(dbPathPtr);
+                    module._free(dbPtrPtr);
+
+                    log('Database opened, handle: ' + db);
+                }
+
+                // Execute SQL
+                const sql = 'CREATE TABLE test (id INTEGER);';
+                log('Executing: ' + sql);
+
+                const sqlLen = module.lengthBytesUTF8(sql) + 1;
+                const sqlPtr = module._malloc(sqlLen);
+                module.stringToUTF8(sql, sqlPtr, sqlLen);
+
+                const errorPtrPtr = module._malloc(4);
+                module.HEAP32[errorPtrPtr >> 2] = 0;
+
+                const execResult = module._sqlite3_exec(db, sqlPtr, 0, 0, errorPtrPtr);
+
+                module._free(sqlPtr);
+                module._free(errorPtrPtr);
+
+                log('Result: ' + execResult);
+                log(`Total events received: ${eventCount}`);
+
+            } catch (error) {
+                log('ERROR: ' + error.message);
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

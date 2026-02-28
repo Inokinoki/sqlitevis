@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite Event Test - All Events</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        h1 { color: #4ec9b0; }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #3e3e42;
+            border-radius: 5px;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover { background: #1177bb; }
+        .event-log {
+            background: #252526;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .event-item {
+            padding: 5px;
+            margin: 2px 0;
+            border-left: 3px solid #4ec9b0;
+            padding-left: 10px;
+        }
+        .event-btree { border-color: #4ec9b0; }
+        .event-parse { border-color: #ce9178; }
+        .event-vdbe { border-color: #dcdcaa; }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .status.success { background: #0f5232; }
+        .status.error { background: #5a1d1d; }
+    </style>
+</head>
+<body>
+    <h1>🧪 SQLite Event System Test</h1>
+    <p>This page tests all 13 event types from the instrumented SQLite WASM module</p>
+
+    <div class="test-section">
+        <h2>1. Load WASM Module</h2>
+        <button onclick="loadWASM()">Load SQLite WASM</button>
+        <div id="wasm-status" class="status">Not loaded</div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Test Individual Events</h2>
+        <button onclick="testBTreeEvents()">Test B-Tree Events (1-7)</button>
+        <button onclick="testParseEvents()">Test Parse Events (8-10)</button>
+        <button onclick="testVDBEEvents()">Test VDBE Events (11-13)</button>
+        <button onclick="testAllEvents()">Test All Events (0-13)</button>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Execute Real SQL</h2>
+        <button onclick="executeTestSQL()">Run Test SQL (CREATE TABLE)</button>
+        <button onclick="executeInsertSQL()">Run Test SQL (INSERT)</button>
+        <button onclick="executeSelectSQL()">Run Test SQL (SELECT)</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Event Log</h2>
+        <div id="event-log" class="event-log"></div>
+        <div style="margin-top: 10px;">
+            <span>Events Received: <strong id="event-count">0</strong></span>
+            <button onclick="clearLog()" style="float: right;">Clear Log</button>
+        </div>
+    </div>
+
+    <script src="../../build/sqlite3.js"></script>
+    <script>
+        let sqliteModule = null;
+        let eventCount = 0;
+        let receivedEvents = new Set();
+
+        // Event type names
+        const eventTypeNames = {
+            0: 'BTREE_OPEN',
+            1: 'BTREE_CLOSE',
+            2: 'BTREE_INSERT',
+            3: 'BTREE_DELETE',
+            4: 'BTREE_SPLIT',
+            5: 'BTREE_BALANCE',
+            6: 'PAGE_ALLOCATE',
+            7: 'PAGE_FREE',
+            8: 'PARSE_START',
+            9: 'PARSE_TOKEN',
+            10: 'PARSE_COMPLETE',
+            11: 'VDBE_START',
+            12: 'VDBE_OPCODE',
+            13: 'VDBE_COMPLETE'
+        };
+
+        // Event categories
+        const eventCategories = {
+            0: 'btree', 1: 'btree', 2: 'btree', 3: 'btree', 4: 'btree', 5: 'btree',
+            6: 'btree', 7: 'btree', 8: 'parse', 9: 'parse', 10: 'parse',
+            11: 'vdbe', 12: 'vdbe', 13: 'vdbe'
+        };
+
+        // Global event handler
+        window.sqliteVisEventHandler = (eventType, eventData) => {
+            eventCount++;
+            receivedEvents.add(eventType);
+            logEvent(eventType, eventData);
+            updateStats();
+        };
+
+        function logEvent(eventType, eventData) {
+            const log = document.getElementById('event-log');
+            const item = document.createElement('div');
+            item.className = `event-item event-${eventCategories[eventType] || 'other'}`;
+
+            const typeName = eventTypeNames[eventType] || 'UNKNOWN';
+            const data = JSON.parse(eventData);
+            const dataStr = JSON.stringify(data);
+
+            item.innerHTML = `
+                <strong>[${eventCount}] ${typeName}</strong>
+                <pre style="margin: 0; white-space: pre-wrap;">${dataStr}</pre>
+            `;
+
+            log.appendChild(item);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStats() {
+            document.getElementById('event-count').textContent = eventCount;
+        }
+
+        function clearLog() {
+            document.getElementById('event-log').innerHTML = '';
+            eventCount = 0;
+            receivedEvents.clear();
+            updateStats();
+        }
+
+        async function loadWASM() {
+            const status = document.getElementById('wasm-status');
+            try {
+                status.textContent = 'Loading...';
+                status.className = 'status';
+
+                sqliteModule = await createSQLiteModule();
+                status.textContent = '✅ SQLite WASM module loaded successfully!';
+                status.className = 'status success';
+            } catch (error) {
+                status.textContent = '❌ Failed to load: ' + error.message;
+                status.className = 'status error';
+            }
+        }
+
+        function testBTreeEvents() {
+            console.log('Testing B-Tree events...');
+            // Test page allocation
+            window.sqliteVisEventHandler(6, JSON.stringify({page: 1, type: 1}));
+            window.sqliteVisEventHandler(2, JSON.stringify({page: 1, cell: 0, keyLen: 16}));
+            window.sqliteVisEventHandler(2, JSON.stringify({page: 1, cell: 1, keyLen: 16}));
+            window.sqliteVisEventHandler(3, JSON.stringify({page: 1, cell: 0}));
+            window.sqliteVisEventHandler(4, JSON.stringify({originalPage: 1, newPage: 2, splitCell: 1}));
+            window.sqliteVisEventHandler(5, JSON.stringify({page: 1, numCells: 5}));
+            window.sqliteVisEventHandler(7, JSON.stringify({page: 2}));
+        }
+
+        function testParseEvents() {
+            console.log('Testing Parse events...');
+            window.sqliteVisEventHandler(8, JSON.stringify({sql: 'SELECT * FROM users'}));
+            window.sqliteVisEventHandler(9, JSON.stringify({token: 'SELECT', type: 1}));
+            window.sqliteVisEventHandler(9, JSON.stringify({token: '*', type: 2}));
+            window.sqliteVisEventHandler(10, JSON.stringify({success: 1}));
+        }
+
+        function testVDBEEvents() {
+            console.log('Testing VDBE events...');
+            window.sqliteVisEventHandler(11, JSON.stringify({numOpcodes: 10}));
+            window.sqliteVisEventHandler(12, JSON.stringify({pc: 0, opcode: 'Init', p1: 0, p2: 1, p3: 0}));
+            window.sqliteVisEventHandler(12, JSON.stringify({pc: 1, opcode: 'Goto', p1: 0, p2: 5, p3: 0}));
+            window.sqliteVisEventHandler(13, JSON.stringify({resultCode: 0}));
+        }
+
+        function testAllEvents() {
+            console.log('Testing all events...');
+            testBTreeEvents();
+            testParseEvents();
+            testVDBEEvents();
+
+            setTimeout(() => {
+                const expected = new Set(Object.keys(eventTypeNames).map(k => parseInt(k)));
+                const missing = [...expected].filter(e => !receivedEvents.has(e));
+
+                if (missing.length === 0) {
+                    alert('✅ All 13 event types received successfully!');
+                } else {
+                    alert(`⚠️ Missing events: ${missing.map(e => eventTypeNames[e]).join(', ')}`);
+                }
+            }, 100);
+        }
+
+        function executeTestSQL() {
+            if (!sqliteModule) {
+                alert('Please load the WASM module first');
+                return;
+            }
+
+            const sql = 'CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)';
+            console.log('Executing:', sql);
+
+            try {
+                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
+                const sqlPtr = sqliteModule._malloc(sqlLen);
+                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+                const errorPtrPtr = sqliteModule._malloc(4);
+                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+                const result = sqliteModule._sqlite3_exec(
+                    0, // db (we'll create one)
+                    sqlPtr,
+                    0, 0, errorPtrPtr
+                );
+
+                sqliteModule._free(sqlPtr);
+                sqliteModule._free(errorPtrPtr);
+
+                console.log('Execution complete, result:', result);
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function executeInsertSQL() {
+            if (!sqliteModule) {
+                alert('Please load the WASM module first');
+                return;
+            }
+
+            const sql = "INSERT INTO test VALUES (1, 'Alice')";
+            console.log('Executing:', sql);
+
+            try {
+                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
+                const sqlPtr = sqliteModule._malloc(sqlLen);
+                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+                const errorPtrPtr = sqliteModule._malloc(4);
+                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+                const result = sqliteModule._sqlite3_exec(
+                    0, sqlPtr, 0, 0, errorPtrPtr
+                );
+
+                sqliteModule._free(sqlPtr);
+                sqliteModule._free(errorPtrPtr);
+
+                console.log('Execution complete, result:', result);
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function executeSelectSQL() {
+            if (!sqliteModule) {
+                alert('Please load the WASM module first');
+                return;
+            }
+
+            const sql = 'SELECT * FROM test';
+            console.log('Executing:', sql);
+
+            try {
+                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
+                const sqlPtr = sqliteModule._malloc(sqlLen);
+                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+
+                const errorPtrPtr = sqliteModule._malloc(4);
+                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+
+                const result = sqliteModule._sqlite3_exec(
+                    0, sqlPtr, 0, 0, errorPtrPtr
+                );
+
+                sqliteModule._free(sqlPtr);
+                sqliteModule._free(errorPtrPtr);
+
+                console.log('Execution complete, result:', result);
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

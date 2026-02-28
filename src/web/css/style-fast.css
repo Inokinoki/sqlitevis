@@ -1,0 +1,224 @@
+/* Ultra-Fast CSS for SQLite Internals Explorer */
+/* Optimized for minimal reflow and maximum performance */
+
+:root {
+    --bg: #fff;
+    --bg-alt: #f5f5f5;
+    --border: #ddd;
+    --text: #333;
+    --text-light: #666;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success: #10b981;
+    --warning: #f59e0b;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font: -apple-system, system-ui, sans-serif;
+    background: var(--bg-alt);
+    color: var(--text);
+    line-height: 1.5;
+}
+
+#app {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    contain: layout style;
+}
+
+header {
+    background: var(--bg);
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+header h1 {
+    font-size: 1.5rem;
+    color: var(--primary);
+}
+
+main {
+    flex: 1;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    overflow: hidden;
+}
+
+section {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+section h2 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+}
+
+#sql-section {
+    flex: 0 0 auto;
+}
+
+#sql-input {
+    width: 100%;
+    height: 120px;
+    padding: 0.5rem;
+    font: 12px monospace;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    resize: vertical;
+    background: var(--bg-alt);
+}
+
+.btn-group {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    font: 14px system-ui;
+    cursor: pointer;
+    background: var(--bg-alt);
+    color: var(--text);
+}
+
+button:hover {
+    background: var(--border);
+}
+
+#execute-btn {
+    background: var(--primary);
+    color: white;
+}
+
+#execute-btn:hover {
+    background: var(--primary-hover);
+}
+
+#output-section {
+    flex: 0 0 auto;
+    max-height: 150px;
+}
+
+#output {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem;
+    font: 12px monospace;
+    min-height: 60px;
+    max-height: 100px;
+    overflow: auto;
+}
+
+#events-section {
+    flex: 1;
+    min-height: 200px;
+    overflow: hidden;
+}
+
+#events-section h2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#clear-events-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 12px;
+}
+
+#event-log {
+    flex: 1;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem;
+    overflow-y: auto;
+    font: 11px monospace;
+    contain: strict;
+    overflow-anchor: none;
+}
+
+.event {
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.25rem;
+    background: var(--bg);
+    border-left: 2px solid var(--border);
+    border-radius: 2px;
+    contain: layout;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.event.btree { border-color: var(--primary); }
+.event.parse { border-color: var(--success); }
+.event.vdbe { border-color: var(--warning); }
+
+footer {
+    background: var(--bg);
+    padding: 0.5rem 1.5rem;
+    border-top: 1px solid var(--border);
+    font: 12px system-ui;
+    color: var(--text-light);
+}
+
+#loading {
+    position: fixed;
+    inset: 0;
+    background: rgba(255,255,255,0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+#loading.hidden {
+    display: none;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+#loading p {
+    margin-top: 1rem;
+    color: var(--text-light);
+    font: 14px system-ui;
+}
+
+@media (max-width: 600px) {
+    main { padding: 0.5rem; }
+    section { padding: 0.5rem; }
+}
