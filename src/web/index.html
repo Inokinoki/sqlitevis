@@ -1,4 +1,145 @@
-<!DOCTYPE html><html><head><meta charset=UTF-8><title>SQL</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f5f5f5;padding:15px;max-width:600px;margin:0 auto;font-family:system-ui}#c{background:#fff;padding:15px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}h1{color:#2563eb;margin-bottom:10px}p{color:#666;margin-bottom:15px;font-size:12px}#q{width:100%;height:120px;padding:10px;border:1px solid #ddd;border-radius:4px;font-family:monospace;font-size:13px;margin-bottom:10px;resize:vertical}.b button{padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;margin-right:8px}.b button:hover{background:#1d4ed8}.b button.s{background:#e5e5e5;color:#333}.b button.s:hover{background:#d5d5d5}#o{margin-top:15px;padding:12px;background:#f9f9f9;border-radius:4px;min-height:50px;font-family:monospace;font-size:12px;white-space:pre-wrap}.err{color:#dc3545;background:#f8d7da}.ok{color:#198754;background:#d1e7dd}table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd}th{background:#f3f4f6;font-weight:600}tr:hover{background:#f9fafb}</style></head><body><div id=c><h1>⚡ SQL Instant</h1><p>Zero dependencies - loads & executes instantly</p><textarea id=q spellcheck=false>CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SQLite Web</title>
+  <link rel="preload" href="build/sqlite3.js" as="script">
+  <link rel="preload" href="build/sqlite3.wasm" as="fetch" crossorigin>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font:12px system-ui;background:#f5f5f5;padding:15px;max-width:700px;margin:0 auto;font-family:system-ui;line-height:1.4}#c{background:#fff;padding:15px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.1)}h1{color:#2563eb;margin-bottom:5px;font-size:20px}.v{font-size:10px;color:#6c757d;margin-bottom:10px}.v a{color:#2563eb;text-decoration:none;margin-right:8px}.v a:hover{text-decoration:underline}#q{width:100%;height:100px;padding:10px;border:1px solid #dee2e6;background:#fff;border-radius:4px;font-family:'SF Mono',Monaco,monospace;font-size:13px;margin-bottom:10px;resize:vertical}.b{margin-bottom:10px}button{padding:8px 16px;border:none;background:#2563eb;color:#fff;border-radius:4px;cursor:pointer;font-size:13px;margin-right:6px}button:hover{background:#1d4ed8}button:disabled{background:#adb5bd;cursor:not-allowed}button.s{background:#e9ecef;color:#212529}button.s:hover{background:#dee2e6}#o{background:#fff;border:1px solid #dee2e6;padding:10px;border-radius:4px;min-height:50px;margin-top:10px;font-family:'SF Mono',Monaco,monospace;font-size:11px;white-space:pre-wrap;overflow:auto;max-height:400px}.ok{color:#198754}.err{color:#dc3545}.ld{color:#0d6efd}.rd{color:#ffc107;background:#fff3cd}table{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px}th,td{padding:6px;text-align:left;border-bottom:1px solid #dee2e6}th{background:#f8f9fa;font-weight:600}tr:hover{background:#f8f9fa}@keyframes s{to{transform:rotate(360deg)}}.sp{display:inline-block;width:10px;height:10px;border:2px solid #dee2e6;border-top-color:#2563eb;border-radius:50%;animation:s 1s linear infinite;margin-right:5px;vertical-align:middle}</style></head><body><div id=c><h1>SQLite Web</h1><div class=v><a href=index-turbo.html>Turbo</a> | <a href=index-fast.html>Fast</a> | <a href=index-full.html>Full</a></div><textarea id=q spellcheck=false>CREATE TABLE test(id INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO test VALUES(1, 'Hello');
+SELECT * FROM test;</textarea><div class=b><button id=r onclick=r()><span class=sp id=sp style=display:none></span><span id=bt>Run SQL</span></button><button class=s onclick=c()>Clear</button><button class=s onclick=ex()>Example</button></div><div id=o class=rd><span class=sp></span><strong>Preparing SQLite...</strong><br>This will take a moment (1.5MB WebAssembly module).<br>You can type SQL above while it loads.</div></div><script>
+let db=null,mod=null,ready=false,cb=0,queue=[],initStart=Date.now();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+(function(){
+  const s=document.createElement('script');
+  s.src='build/sqlite3.js';
+  s.async=!0;
+  s.onload=init;
+  document.head.appendChild(s);
+})();
+async function init(){
+  const o=document.getElementById('o');
+  o.innerHTML='<span class=sp></span><strong>Initializing SQLite...</strong>';
+  if(typeof createSQLiteModule==='undefined'){
+    showError('SQLite module not found');
+    return
+  }
+  try{
+    mod=await createSQLiteModule();
+    const p=mod._malloc(mod.lengthBytesUTF8(':memory:')+1);
+    mod.stringToUTF8(':memory:',p,mod.lengthBytesUTF8(':memory:')+1);
+    const pp=mod._malloc(4);
+    if(mod._sqlite3_open(p,pp)!==0)throw new Error('Open failed');
+    db=mod.HEAP32[pp>>2];
+    mod._free(p);
+    mod._free(pp);
+    ready=!0;
+    const t=((Date.now()-initStart)/1000).toFixed(1);
+    o.innerHTML='<div class=ok><strong>✓ Ready!</strong> Loaded in '+t+'s</div>';
+    document.getElementById('bt').textContent='Run SQL (Ctrl+Enter)';
+    document.getElementById('r').disabled=!1;
+    processQueue()
+  }catch(e){
+    showError(e.message)
+  }
+}
+function r(){
+  if(!ready){
+    enqueue();
+    return
+  }
+  exec()
+}
+function enqueue(){
+  const o=document.getElementById('o');
+  o.innerHTML='<span class=sp></span><strong>Queued...</strong><br>SQLite is loading. Your query will run automatically when ready.';
+  queue.push(document.getElementById('q').value)
+}
+function processQueue(){
+  while(queue.length>0){
+    document.getElementById('q').value=queue.shift();
+    exec()
+  }
+}
+function exec(){
+  const sql=document.getElementById('q').value.trim();
+  if(!sql)return showError('Please enter SQL');
+  const btn=document.getElementById('r');
+  const sp=document.getElementById('sp');
+  btn.disabled=!0;
+  sp.style.display='inline-block';
+  requestAnimationFrame(()=>{
+    try{
+      const sptr=mod._malloc(mod.lengthBytesUTF8(sql)+1);
+      mod.stringToUTF8(sql,sptr,mod.lengthBytesUTF8(sql)+1);
+      const res=[];
+      if(!cb){
+        cb=mod.addFunction((n,c,vals)=>{
+          const row=[];
+          for(let i=0;i<c;i++){
+            const vp=HEAP32[(vals+i*4)>>2];
+            row.push(vp?UTF8ToString(vp):'NULL')
+          }
+          res.push(row);
+          return 0
+        },'iiii')
+      }
+      const eptr=mod._malloc(4);
+      const rc=mod._sqlite3_exec(db,sptr,cb,0,eptr);
+      mod._free(sptr);
+      if(rc){
+        const em=mod.HEAP32[eptr>>2];
+        showError(em?mod.UTF8ToString(em):'Error '+rc)
+      }else{
+        showRes(res)
+      }
+      mod._free(eptr)
+    }catch(e){
+      showError(e.message)
+    }
+    btn.disabled=!1;
+    sp.style.display='none'
+  })
+}
+function showRes(res){
+  const o=document.getElementById('o');
+  if(!res.length){
+    o.innerHTML='<div class=ok>✓ <strong>Success</strong><br>Statement executed</div>';
+    return
+  }
+  let h='<div class=ok>✓ <strong>'+res.length+' rows</strong></div><table><thead><tr>';
+  res[0].forEach((_,i)=>h+='<th>Column '+(i+1)+'</th>');
+  h+='</tr></thead><tbody>';
+  res.forEach(r=>{
+    h+='<tr>';
+    r.forEach(c=>h+='<td>'+esc(c)+'</td>');
+    h+='</tr>'
+  });
+  h+='</tbody></table>';
+  o.innerHTML=h
+}
+function showError(m){
+  document.getElementById('o').innerHTML='<div class=err><strong>Error:</strong> '+esc(m)+'</div>'
+}
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+function c(){
+  document.getElementById('q').value='';
+  document.getElementById('o').innerHTML='<div style=color:#6c757d>Cleared</div>'
+}
+function ex(){
+  document.getElementById('q').value=`CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES(1, 'Alice', 30);
 INSERT INTO users VALUES(2, 'Bob', 25);
-SELECT * FROM users;</textarea><div class=b><button onclick=run()>▶ Run</button><button class=s onclick=clr()>Clear</button><button class=s onclick=ex()>Example</button></div><div id=o></div></div><script>const db={};function run(){const q=document.getElementById('q').value.trim();if(!q)return showError('Enter SQL');try{const stmts=q.split(';').filter(s=>s.trim());let res=[],msg='';for(const s of stmts){const u=s.toUpperCase().trim();if(u.startsWith('CREATE TABLE')){const m=s.match(/CREATE TABLE (\w+) \((.*)\)/i);if(m){const[_,n,c]=m;db[n]={cols:c.split(',').map(x=>x.trim().split(/\s+/)[0]),rows:[]};msg+='✓ Created '+n+'\n'}}else if(u.startsWith('INSERT')){const m=s.match(/INSERT INTO (\w+) VALUES \((.*)\)/i);if(m){const[_,n,v]=m;if(!db[n])throw new Error('Table not found: '+n);db[n].rows.push(v.split(',').map(x=>{x=x.trim();return x==='NULL'?null:x.startsWith("'")?x.slice(1,-1):isNaN(x)?x:Number(x)}));msg+='✓ Inserted\n'}}else if(u.startsWith('SELECT')){const m=s.match(/SELECT (.+) FROM (\w+)/i);if(m){const[_,_,n]=m;if(!db[n])throw new Error('Table not found: '+n);res=db[n].rows;msg='✓ '+res.length+' rows'}}else if(u.startsWith('DROP')){const m=s.match(/DROP TABLE (\w+)/i);if(m){delete db[m[1]];msg+='✓ Dropped\n'}}}if(res.length){let h='<div class=ok>'+msg+'</div><table><tr>';res[0].forEach((_,i)=>h+='<th>Col '+(i+1)+'</th>');h+='</tr>';res.forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+(c===null?'NULL':c)+'</td>');h+='</tr>'});h+='</table>';document.getElementById('o').innerHTML=h}else{document.getElementById('o').innerHTML='<div class=ok>'+msg+'</div>'}}catch(e){showError(e.message)}}function showError(m){document.getElementById('o').innerHTML='<div class=err>⚠ '+m+'</div>'}function clr(){document.getElementById('q').value='';document.getElementById('o').innerHTML=''}function ex(){document.getElementById('q').value=`CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);\nINSERT INTO users VALUES(1, 'Alice', 30);\nINSERT INTO users VALUES(2, 'Bob', 25);\nINSERT INTO users VALUES(3, 'Charlie', 35);\nSELECT * FROM users;`;document.getElementById('o').innerHTML='<div style=color:#666>Example loaded</div>'}document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();run()}});</script></body></html>
+INSERT INTO users VALUES(3, 'Charlie', 35);
+SELECT * FROM users;`;
+  document.getElementById('o').innerHTML='<div style=color:#6c757d>Example loaded - click Run SQL</div>'
+}
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){
+    e.preventDefault();
+    r()
+  }
+});
+</script></body></html>
