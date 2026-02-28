@@ -4,21 +4,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SQLite Web</title>
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font:12px system-ui;background:#f5f5f5;padding:10px;max-width:600px;margin:0 auto}
-    h1{color:#2563eb;margin-bottom:5px;font-size:18px}
-    .ver{font-size:10px;color:#666;margin-bottom:10px}
-    .ver a{color:#2563eb;text-decoration:none}
+    body{font:13px system-ui;background:#f5f5f5;padding:15px;max-width:700px;margin:0 auto;line-height:1.4}
+    h1{color:#2563eb;margin-bottom:5px;font-size:20px}
+    .ver{font-size:11px;color:#666;margin-bottom:12px}
+    .ver a{color:#2563eb;text-decoration:none;margin-right:8px}
     .ver a:hover{text-decoration:underline}
-    textarea{width:100%;height:80px;font:11px monospace;padding:5px;border:1px solid #ddd;background:#fff;margin-bottom:5px;resize:vertical;border-radius:3px}
-    button{padding:6px 12px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:5px;font:12px system-ui;border-radius:3px}
+    textarea{width:100%;height:100px;font:12px monospace;padding:8px;border:1px solid #ddd;background:#fff;margin-bottom:8px;resize:vertical;border-radius:4px;font-family:'SF Mono','Monaco','Cascadia Code',monospace}
+    .btns{margin-bottom:10px}
+    button{padding:7px 14px;border:none;background:#2563eb;color:#fff;cursor:pointer;margin-right:6px;font:13px system-ui;border-radius:4px;font-weight:500}
     button:hover{background:#1d4ed8}
     button:disabled{background:#ccc;cursor:not-allowed}
-    #out{padding:5px;background:#fff;border:1px solid #ddd;min-height:30px;margin-top:5px;font:11px monospace;border-radius:3px}
-    .err{color:#ef4444}.ok{color:#10b981}
+    button.sec{background:#e5e5e5;color:#333}
+    button.sec:hover{background:#d5d5d5}
+    #out{background:#fff;border:1px solid #ddd;padding:10px;min-height:50px;margin-top:8px;border-radius:4px;font:12px system-ui}
+    .err{color:#ef4444;background:#fef2f2;padding:10px;border-radius:4px;border:1px solid #fecaca}
+    .ok{color:#10b981}
     .load{color:#666;font-style:italic}
+    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+    th,td{padding:8px;text-align:left;border-bottom:1px solid #eee}
+    th{background:#f9f9f9;font-weight:600;color:#333}
+    tr:hover{background:#f5f5f5}
+    .meta{color:#666;font-size:11px;margin-top:8px}
+    .empty{text-align:center;color:#999;padding:20px;font-style:italic}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spinner{display:inline-block;width:12px;height:12px;border:2px solid #ddd;border-top-color:#2563eb;border-radius:50%;animation:spin 1s linear infinite;margin-right:5px;vertical-align:middle}
   </style>
 </head>
 <body>
@@ -29,25 +40,25 @@
     <a href="index-fast.html">Fast</a> |
     <a href="index-full.html">Full</a>
   </div>
-  <textarea id="sql" spellcheck="false" placeholder="Loading...">CREATE TABLE test(id INTEGER PRIMARY KEY, name TEXT);
-INSERT INTO test VALUES(1, 'Alice');
-INSERT INTO test VALUES(2, 'Bob');
-SELECT * FROM test;</textarea>
-  <div>
-    <button id="runBtn" onclick="run()" disabled>Execute</button>
-    <button onclick="clr()">Clear</button>
+
+  <textarea id="sql" spellcheck="false" placeholder="Loading SQLite module...">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Charlie', 35);
+SELECT * FROM users;</textarea>
+
+  <div class="btns">
+    <button id="runBtn" onclick="run()" disabled><span class="spinner" style="display:none" id="spin"></span>Execute (Ctrl+Enter)</button>
+    <button class="sec" onclick="clr()">Clear</button>
+    <button class="sec" onclick="example()">Load Example</button>
   </div>
+
   <div id="out" class="load">Loading SQLite module...</div>
 
   <script>
-    // Register service worker for caching
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
-    }
-
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
     let db, mod, ready = false;
 
-    // Async load without blocking
     (function(){
       const s = document.createElement('script');
       s.src = 'build/sqlite3.js';
@@ -57,20 +68,13 @@ SELECT * FROM test;</textarea>
     })();
 
     async function init() {
-      document.getElementById('out').textContent = 'Initializing...';
-
-      // Small delay to let UI update
-      await new Promise(r => setTimeout(r, 10));
-
       if (typeof createSQLiteModule === 'undefined') {
-        document.getElementById('out').textContent = 'Error: SQLite module not found';
-        document.getElementById('out').className = 'err';
+        showErr('SQLite module not found');
         return;
       }
 
       try {
         mod = await createSQLiteModule();
-
         const p = mod._malloc(mod.lengthBytesUTF8(':memory:') + 1);
         mod.stringToUTF8(':memory:', p, mod.lengthBytesUTF8(':memory:') + 1);
         const pp = mod._malloc(4);
@@ -84,59 +88,120 @@ SELECT * FROM test;</textarea>
         mod._free(pp);
 
         ready = true;
-        document.getElementById('out').textContent = 'Ready';
-        document.getElementById('out').className = 'ok';
+        document.getElementById('out').innerHTML = '<div class="ok">✓ Ready - Execute SQL to see results</div>';
         document.getElementById('runBtn').disabled = false;
         document.getElementById('sql').placeholder = 'Enter SQL here...';
       } catch(e) {
-        document.getElementById('out').textContent = 'Error: ' + e.message;
-        document.getElementById('out').className = 'err';
+        showErr('Initialization error: ' + e.message);
       }
     }
 
     function run() {
       if (!ready) {
-        document.getElementById('out').textContent = 'Please wait...';
-        document.getElementById('out').className = 'load';
+        document.getElementById('out').innerHTML = '<span class="spinner"></span>Please wait...';
         return;
       }
 
       const sql = document.getElementById('sql').value.trim();
       if (!sql) {
-        document.getElementById('out').textContent = 'Enter SQL';
-        document.getElementById('out').className = 'err';
+        showErr('Please enter SQL');
         return;
       }
 
-      try {
-        const sp = mod._malloc(mod.lengthBytesUTF8(sql) + 1);
-        mod.stringToUTF8(sql, sp, mod.lengthBytesUTF8(sql) + 1);
-        const ep = mod._malloc(4);
-        const rc = mod._sqlite3_exec(db, sp, 0, 0, ep);
-        mod._free(sp);
+      document.getElementById('spin').style.display = 'inline-block';
+      document.getElementById('runBtn').disabled = true;
 
-        if (rc) {
-          const em = mod.HEAP32[ep >> 2];
-          document.getElementById('out').textContent = em ? mod.UTF8ToString(em) : 'Error ' + rc;
-          document.getElementById('out').className = 'err';
-        } else {
-          document.getElementById('out').textContent = '✓ Executed successfully';
-          document.getElementById('out').className = 'ok';
+      setTimeout(() => {
+        try {
+          const sp = mod._malloc(mod.lengthBytesUTF8(sql) + 1);
+          mod.stringToUTF8(sql, sp, mod.lengthBytesUTF8(sql) + 1);
+
+          let results = [];
+          const cb = mod.addFunction((rowCount, cols, vals) => {
+            const row = [];
+            for (let i = 0; i < cols; i++) {
+              const valPtr = HEAP32[((vals) + (i * 4)) >> 2];
+              row.push(valPtr ? UTF8ToString(valPtr) : 'NULL');
+            }
+            results.push(row);
+            return 0;
+          }, 'iiii');
+
+          const ep = mod._malloc(4);
+          const rc = mod._sqlite3_exec(db, sp, cb, 0, ep);
+          mod.removeFunction(cb);
+          mod._free(sp);
+
+          if (rc) {
+            const em = mod.HEAP32[ep >> 2];
+            showErr(em ? mod.UTF8ToString(em) : 'Error ' + rc);
+          } else {
+            showResults(results, sql);
+          }
+          mod._free(ep);
+        } catch(e) {
+          showErr('Error: ' + e.message);
         }
-        mod._free(ep);
-      } catch(e) {
-        document.getElementById('out').textContent = 'Error: ' + e.message;
-        document.getElementById('out').className = 'err';
+
+        document.getElementById('spin').style.display = 'none';
+        document.getElementById('runBtn').disabled = false;
+      }, 10);
+    }
+
+    function showResults(results, sql) {
+      if (results.length === 0) {
+        document.getElementById('out').innerHTML = '<div class="ok">✓ Executed successfully (no results)</div><div class="meta">Query completed in ' + results.length + ' rows</div>';
+        return;
       }
+
+      let html = '<div class="ok">✓ Query Results</div>';
+
+      if (results.length === 1 && results[0].length === 1) {
+        html += '<div style="font-size:24px;font-weight:bold;margin:10px 0">' + results[0][0] + '</div>';
+      } else {
+        html += '<table><thead><tr>';
+        results[0].forEach((h, i) => {
+          html += '<th>Column ' + (i + 1) + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+
+        results.forEach(row => {
+          html += '<tr>';
+          row.forEach(cell => {
+            html += '<td>' + esc(cell) + '</td>';
+          });
+          html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        html += '<div class="meta">' + results.length + ' row(s) returned</div>';
+      }
+
+      document.getElementById('out').innerHTML = html;
+    }
+
+    function showErr(msg) {
+      document.getElementById('out').innerHTML = '<div class="err">⚠ ' + esc(msg) + '</div>';
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     function clr() {
       document.getElementById('sql').value = '';
-      document.getElementById('out').textContent = '';
+      document.getElementById('out').innerHTML = '<div style="color:#999;text-align:center;padding:20px">Cleared</div>';
     }
 
-    // Keyboard shortcut
-    document.addEventListener('keydown', function(e) {
+    function example() {
+      document.getElementById('sql').value = `CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Charlie', 35);
+SELECT * FROM users;`;
+    }
+
+    document.addEventListener('keydown', e => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         run();
