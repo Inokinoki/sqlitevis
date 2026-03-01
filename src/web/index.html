@@ -1,156 +1,112 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>SQL</title>
-  <style>
-    body { font: 14px system-ui; background: #f0f0f0; padding: 20px; }
-    #main { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
-    h1 { color: #2563eb; margin-bottom: 15px; }
-    textarea { width: 100%; height: 100px; padding: 10px; font: monospace; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
-    button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
-    button:hover { background: #1d4ed8; }
-    #output { margin-top: 15px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; min-height: 50px; font-family: monospace; white-space: pre-wrap; }
-    .error { color: #dc3545; }
-    .success { color: #198754; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
-    th { background: #f3f4f6; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite B-Tree Visualization</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div id="main">
-    <h1>🚀 SQLite Web</h1>
-    <p style="color: #666; margin-bottom: 15px;">Fast SQL interface using WebAssembly SQLite</p>
-    
-    <textarea id="sql" spellcheck="false">CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-INSERT INTO users VALUES(1, 'Alice', 30);
-INSERT INTO users VALUES(2, 'Bob', 25);
+    <div class="container">
+        <header>
+            <h1>SQLite B-Tree Visualization</h1>
+            <p class="subtitle">Interactive WebAssembly-powered database internals explorer</p>
+        </header>
+
+        <div class="main-layout">
+            <!-- Left Panel: SQL Editor and Controls -->
+            <div class="left-panel">
+                <section class="sql-editor-section">
+                    <h2>SQL Editor</h2>
+                    <textarea id="sql-input" placeholder="Enter SQL commands here...
+Example:
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
+SELECT * FROM users;">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
 SELECT * FROM users;</textarea>
-    
-    <button onclick="runSQL()">▶ Run SQL</button>
-    <button onclick="clear()">Clear</button>
-    
-    <div id="output">Loading SQLite module (1.5MB)...</div>
-  </div>
+                    <div class="button-group">
+                        <button id="execute-btn" class="btn btn-primary">Execute SQL</button>
+                        <button id="step-btn" class="btn btn-secondary">Step Through</button>
+                        <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                    </div>
+                </section>
 
-  <script>
-    let db = null;
-    let mod = null;
-    let ready = false;
+                <section class="output-section">
+                    <h2>Query Results</h2>
+                    <div id="output" class="output-box">
+                        <p class="placeholder">Results will appear here...</p>
+                    </div>
+                </section>
 
-    // Load SQLite
-    const script = document.createElement('script');
-    script.src = 'build/sqlite3.js';
-    script.async = true;
-    script.onload = init;
-    document.head.appendChild(script);
+                <section class="events-section">
+                    <h2>Event Log</h2>
+                    <div class="controls">
+                        <label>
+                            <input type="checkbox" id="auto-scroll" checked>
+                            Auto-scroll
+                        </label>
+                        <button id="clear-events-btn" class="btn btn-small">Clear Log</button>
+                    </div>
+                    <div id="event-log" class="event-log"></div>
+                </section>
+            </div>
 
-    async function init() {
-      const output = document.getElementById('output');
-      
-      if (typeof createSQLiteModule === 'undefined') {
-        output.innerHTML = '<div class="error">Error: SQLite module not found</div>';
-        return;
-      }
+            <!-- Right Panel: Visualization -->
+            <div class="right-panel">
+                <section class="visualization-section">
+                    <h2>B-Tree Visualization</h2>
+                    <div class="viz-controls">
+                        <label>
+                            View:
+                            <select id="view-mode">
+                                <option value="btree">B-Tree Structure</option>
+                                <option value="parse">SQL Parse Tree</option>
+                                <option value="vdbe">VDBE Execution</option>
+                            </select>
+                        </label>
+                        <label>
+                            <input type="checkbox" id="show-transitions" checked>
+                            Show Transitions
+                        </label>
+                        <label>
+                            Speed:
+                            <input type="range" id="animation-speed" min="0.1" max="2" step="0.1" value="1">
+                            <span id="speed-value">1.0x</span>
+                        </label>
+                    </div>
+                    <canvas id="visualization-canvas"></canvas>
+                    <div id="node-info" class="node-info hidden">
+                        <h3>Node Information</h3>
+                        <div id="node-details"></div>
+                    </div>
+                </section>
+            </div>
+        </div>
 
-      try {
-        const start = Date.now();
-        mod = await createSQLiteModule();
-        
-        // Open database
-        const pathPtr = mod._malloc(mod.lengthBytesUTF8(':memory:') + 1);
-        mod.stringToUTF8(':memory:', pathPtr, mod.lengthBytesUTF8(':memory:') + 1);
-        const dbPtrPtr = mod._malloc(4);
-        const result = mod._sqlite3_open(pathPtr, dbPtrPtr);
-        
-        if (result !== 0) {
-          throw new Error('Failed to open database: ' + result);
-        }
-        
-        db = mod.HEAP32[dbPtrPtr >> 2];
-        mod._free(pathPtr);
-        mod._free(dbPtrPtr);
-        
-        ready = true;
-        const loadTime = ((Date.now() - start) / 1000).toFixed(1);
-        output.innerHTML = `<div class="success">✓ Ready! Loaded in ${loadTime}s</div>`;
-        
-      } catch (error) {
-        output.innerHTML = '<div class="error">Error: ' + error.message + '</div>';
-        console.error(error);
-      }
-    }
+        <footer>
+            <div class="stats">
+                <span>Status: <span id="db-status">Initializing...</span></span>
+                <span>|</span>
+                <span>Events: <span id="event-count">0</span></span>
+                <span>|</span>
+                <span>Pages: <span id="page-count">0</span></span>
+            </div>
+        </footer>
+    </div>
 
-    function runSQL() {
-      if (!ready) {
-        document.getElementById('output').innerHTML = '<div class="error">Please wait for SQLite to finish loading...</div>';
-        return;
-      }
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Loading SQLite WebAssembly module...</p>
+    </div>
 
-      const sql = document.getElementById('sql').value.trim();
-      if (!sql) {
-        document.getElementById('output').innerHTML = '<div class="error">Please enter SQL</div>';
-        return;
-      }
-
-      try {
-        const sqlPtr = mod._malloc(mod.lengthBytesUTF8(sql) + 1);
-        mod.stringToUTF8(sql, sqlPtr, mod.lengthBytesUTF8(sql) + 1);
-        
-        const results = [];
-        const callback = mod.addFunction((rowNum, cols, values) => {
-          const row = [];
-          for (let i = 0; i < cols; i++) {
-            const valuePtr = HEAP32[(values + i * 4) >> 2];
-            row.push(valuePtr ? UTF8ToString(valuePtr) : 'NULL');
-          }
-          results.push(row);
-          return 0;
-        }, 'iiii');
-        
-        const errorPtr = mod._malloc(4);
-        const rc = mod._sqlite3_exec(db, sqlPtr, callback, 0, errorPtr);
-        mod._free(sqlPtr);
-        mod.removeFunction(callback);
-        
-        if (rc !== 0) {
-          const errorPtrValue = mod.HEAP32[errorPtr >> 2];
-          const errorMessage = errorPtrValue ? mod.UTF8ToString(errorPtrValue) : 'Error code: ' + rc;
-          throw new Error(errorMessage);
-        }
-        
-        mod._free(errorPtr);
-        
-        // Display results
-        if (results.length === 0) {
-          document.getElementById('output').innerHTML = '<div class="success">✓ Statement executed successfully</div>';
-        } else {
-          let html = '<div class="success">✓ ' + results.length + ' rows</div><table><thead><tr>';
-          results[0].forEach((_, i) => html += '<th>Column ' + (i + 1) + '</th>');
-          html += '</tr></thead><tbody>';
-          results.forEach(row => {
-            html += '<tr>';
-            row.forEach(cell => html += '<td>' + escapeHtml(cell) + '</td>');
-            html += '</tr>';
-          });
-          html += '</tbody></table>';
-          document.getElementById('output').innerHTML = html;
-        }
-        
-      } catch (error) {
-        document.getElementById('output').innerHTML = '<div class="error">Error: ' + escapeHtml(error.message) + '</div>';
-      }
-    }
-
-    function clear() {
-      document.getElementById('sql').value = '';
-      document.getElementById('output').innerHTML = '';
-    }
-
-    function escapeHtml(str) {
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-  </script>
+    <!-- Scripts -->
+    <script src="build/sqlite3.js"></script>
+    <script src="js/events.js"></script>
+    <script src="js/visualizer.js"></script>
+    <script src="js/main.js"></script>
 </body>
 </html>
