@@ -471,6 +471,8 @@ class SQLiteVisApp {
         if (overlay) {
             overlay.classList.add('hidden');
         }
+        // Dispatch event to let HTML know WASM is ready
+        window.dispatchEvent(new Event('wasm-ready'));
     }
 }
 

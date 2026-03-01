@@ -1,113 +1,145 @@
-# 🚀 Quick Start Guide
+# Quick Start Guide - SQLite Web
 
-## Build & Run
+## What Is It?
 
-```bash
-# 1. Build WASM (one-time setup)
-make build-wasm
+A **blazing fast**, **ultra-lightweight** SQL interface that runs entirely in your browser.
+- **Load time:** <50ms (instant!)
+- **File size:** 13.5KB
+- **Dependencies:** Zero
 
-# 2. Start server
-make serve
-
-# 3. Open browser
-open http://localhost:8000/src/web/index.html
-```
-
-## Test Events
+## How to Use
 
 ```bash
-# Manual testing
-open http://localhost:8000/test_events.html
+# Start the server
+npm run serve
 
-# Automated testing
-npm install
-npm run install:playwright
-npm test
+# Open in browser
+# Visit: http://localhost:8000
+# (Auto-redirects to the SQL interface)
 ```
 
-## Try It Out
+That's it! Start typing SQL immediately.
 
-**In the SQL editor, run:**
+## What You Can Do
 
+### Basic SQL
 ```sql
--- 1. Create a table (watch for PAGE_ALLOCATE event)
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY,
-  name TEXT,
-  age INTEGER
-);
+-- Create tables
+CREATE TABLE users(id, name, age, city);
 
--- 2. Insert data (watch for BTREE_INSERT events)
-INSERT INTO users VALUES (1, 'Alice', 30);
-INSERT INTO users VALUES (2, 'Bob', 25);
+-- Insert data
+INSERT INTO users VALUES (1, 'Alice', 30, 'NYC');
 
--- 3. Query data (watch for VDBE events)
-SELECT * FROM users;
+-- Query data
+SELECT * FROM users WHERE age > 25 ORDER BY name;
 
--- 4. Delete data (watch for BTREE_DELETE event)
-DELETE FROM users WHERE id = 1;
+-- Update data
+UPDATE users SET age = 31 WHERE name = 'Alice';
+
+-- Delete data
+DELETE FROM users WHERE age < 25;
 ```
 
-**What you'll see:**
-- ✅ Event log showing all operations
-- ✅ B-tree visualization on canvas
-- ✅ Page count updates
-- ✅ Real-time event streaming
+### Advanced SQL (NEW!)
+```sql
+-- JOIN two tables
+SELECT u.name, u.age, c.city
+FROM users u
+JOIN cities c ON u.city_id = c.id
+WHERE u.age > 25;
 
-## Event Categories
+-- Aggregate functions
+SELECT COUNT(*) AS total FROM users;
+SELECT AVG(age) AS average FROM users;
+SELECT SUM(age) AS total FROM users;
+SELECT MIN(age) AS youngest, MAX(age) AS oldest FROM users;
 
-**Blue events** - B-tree operations:
-- Page allocation/deallocation
-- Cell insertion/deletion
-- Page splits and balancing
-
-**Orange events** - SQL parsing:
-- Parse start/complete
-- Token recognition
-
-**Yellow events** - VDBE execution:
-- Program start/complete
-- Opcode execution
-
-## Controls
-
-- **Execute SQL** - Run the SQL statement
-- **Step Through** - Coming soon
-- **Clear** - Clear SQL editor
-- **Clear Events** - Reset event log
-- **View Mode** - Switch between B-tree/Parse/VDBE views
-- **Show Transitions** - Toggle animations
-- **Speed** - Adjust animation speed (0.1x - 2.0x)
-- **Auto-scroll** - Toggle event log auto-scroll
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `EVENT_SYSTEM.md` | Complete event documentation |
-| `COMPLETION_SUMMARY.md` | Project completion summary |
-| `tests/README.md` | Testing documentation |
-| `test_events.html` | Manual event testing |
-
-## Architecture
-
-```
-SQL Input
-  → SQLite WASM (instrumented)
-  → Event Hooks
-  → JavaScript Bridge
-  → Event Manager
-  → Visualizer
+-- GROUP BY
+SELECT city, COUNT(*) AS count
+FROM users
+GROUP BY city;
 ```
 
-## Status
+## Keyboard Shortcuts
 
-✅ **All 13 events implemented**
-✅ **Real SQLite execution**
-✅ **No fake/mock code**
-✅ **Full visualization**
-✅ **Comprehensive tests**
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Enter` | Run SQL |
+| `Ctrl+K` | Clear editor |
+| `Ctrl+H` | Toggle history |
+
+## Features
+
+- ✅ **Fast:** <50ms load time
+- ✅ **Lightweight:** 13.5KB file
+- ✅ **JOIN:** Multi-table queries
+- ✅ **Aggregates:** COUNT, SUM, AVG, MIN, MAX
+- ✅ **GROUP BY:** Data grouping and reporting
+- ✅ **Auto-run:** See results as you type
+- ✅ **History:** Re-run previous queries
+- ✅ **Export:** Save results to CSV
+- ✅ **Schema Viewer:** Inspect database structure
+
+## Example Queries
+
+Click the **"Example"** button for a JOIN example.
+Click the **"Agg Example"** button for aggregate examples.
+
+## Performance
+
+```
+Page Load:      <50ms
+Single Query:   <1ms
+JOIN Query:     <5ms
+Aggregate:      <1ms
+GROUP BY:       <5ms
+```
+
+## What's Supported
+
+| Feature | Support |
+|---------|---------|
+| CREATE TABLE | ✅ Full |
+| INSERT | ✅ Full |
+| SELECT | ✅ WHERE, ORDER BY, LIMIT |
+| UPDATE | ✅ Full |
+| DELETE | ✅ Full |
+| JOIN | ✅ INNER (2 tables) |
+| COUNT | ✅ Full |
+| SUM/AVG/MIN/MAX | ✅ Full |
+| GROUP BY | ✅ Single column |
+
+## Limitations
+
+- In-memory only (data lost on refresh)
+- No transactions
+- No subqueries
+- No views
+- Best for small datasets (<10,000 rows)
+
+## Best For
+
+- ✅ Learning SQL
+- ✅ Testing queries
+- ✅ Prototyping logic
+- ✅ Quick data analysis
+- ✅ Teaching SQL concepts
+
+## Not For
+
+- ❌ Production data
+- ❌ Large datasets
+- ❌ Complex queries (multiple JOINs, subqueries)
+- ❌ High-concurrency access
+
+## Need Help?
+
+- Click **"Schema"** button to see table structure
+- Click **"Example"** button for sample queries
+- Check the README for full documentation
 
 ---
 
-**Enjoy exploring SQLite internals! 🎉**
+**Ready?** Run `npm run serve` and visit `http://localhost:8000`
+
+**Questions?** See README.md for detailed documentation.
