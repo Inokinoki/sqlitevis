@@ -1,31 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQL</title>
-    <style>*{margin:0;padding:0}body{font:12px system-ui;background:#fff;padding:20px;max-width:800px;margin:0 auto}h1{color:#2563eb;margin-bottom:10px}textarea{width:100%;height:100px;padding:10px;font:12px monospace;border:1px solid #ccc;border-radius:4px;margin-bottom:10px;resize:vertical}button{padding:8px 16px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-right:10px;font-size:12px}button:hover{background:#1d4ed8}#o{padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;min-height:50px;font:12px monospace;white-space:pre-wrap}table{width:100%;border-collapse:collapse;margin-top:10px;font:12px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}th{background:#f3f4f6}.ok{color:#198754}.err{color:#dc3545}</style>
-</head>
-<body>
-    <h1>SQL</h1>
-    <textarea id=q spellcheck=false>CREATE TABLE users(id,name,age);
-INSERT INTO users VALUES(1,'Alice',30);
-INSERT INTO users VALUES(2,'Bob',25);
-SELECT * FROM users;</textarea>
-    <button onclick=r()>▶ Run</button>
-    <button onclick=c()>Clear</button>
-    <button onclick=e(1)>Demo</button>
-    <div id=o></div>
-    <script>
-    const T0=performance.now(),DB={};
-    function pv(v){v=v.trim();if(v==='NULL')return null;if(v.startsWith("'"))return v.slice(1,-1);if(v.startsWith('"'))return v.slice(1,-1);const n=Number(v);return isNaN(n)?v:n}
-    function ct(sql){const m=sql.match(/CREATE\s+TABLE\s+(\w+)\s*\((.*)\)/i);if(!m)return{err:'Invalid CREATE'};DB[m[1]]={cols:m[2].split(',').map(c=>({name:c.trim(),type:'TEXT'})),rows:[]};return{ok:true,msg:'Created '+m[1]}}
-    function ir(sql){const m=sql.match(/INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)/i);if(!m||!DB[m[1]])return{err:'Invalid INSERT'};const v=m[2].split(',').map(pv);DB[m[1]].rows.push(v);return{ok:true,msg:'Inserted'}}
-    function sl(sql){const m=sql.match(/SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(\w+)(?:\s+(ASC|DESC))?(?:\s+LIMIT\s+(\d+))?$/i);if(!m||!DB[m[2]])return{err:'Invalid SELECT'};const tbl=DB[m[2]],r=[...tbl.rows],c=m[1].trim();const h=c==='*'?tbl.cols.map(c=>c.name):c.split(',');if(c!=='*')r.forEach((x,i)=>{r[i]=h.map(c=>x[tbl.cols.findIndex(y=>y.name===c.trim())])});if(m[3]){const w=m[3].match(/(\w+)\s*(=|>|<)\s*(.+)/i);if(w){const ci=tbl.cols.findIndex(y=>y.name===w[1]);if(ci!==-1){const cv=pv(w[3]);for(let i=r.length-1;i>=0;i--){const v=r[i][ci];if(w[2]==='='?v!=cv:w[2]==='>'?v<=cv:w[2]==='<'?v>=cv:true)r.splice(i,1);}}}if(m[4]){const d=(m[5]||'').toUpperCase()==='DESC',ci=h.indexOf(m[4]);if(ci!==-1)r.sort((a,b)=>{const va=a[ci],vb=b[ci];return typeof va==='number'&&typeof vb==='number'?d?vb-va:va>vb?1:va<vb?-1:0})}if(m[6])r.splice(parseInt(m[6]));return{ok:true,rows:r,headers:h}}
-    function e(x){const s=x===1?`CREATE TABLE users(id,name,age);\nINSERT INTO users VALUES(1,'Alice',30);\nINSERT INTO users VALUES(2,'Bob',25);\nSELECT * FROM users;`:x===2?`CREATE TABLE u(id,n,a);\nCREATE TABLE c(i,y,s);\nINSERT INTO c VALUES(1,'NYC'),(2,'LA');\nINSERT INTO u VALUES(1,'Alice',1),(2,'Bob',2);\nSELECT n,a,s FROM u u JOIN c c ON u.a=c.i WHERE a>25;`:x===3?`CREATE TABLE s(p,a);\nINSERT INTO s VALUES('Widget',100),('Gadget',150);\nSELECT p,SUM(a) AS t FROM s GROUP BY p;`;document.getElementById('q').value=s;}
-    function r(){const q=document.getElementById('q').value.trim();if(!q)return;const t0=performance.now();const x=sl(q);if(x.err){document.getElementById('o').innerHTML='<div class=err>❌ '+x.err+'</div>'}else if(x.rows){let h='<div class=ok>✓ '+x.rows.length+' rows – '+((performance.now()-t0).toFixed(2)+'ms</div><table><tr>');x.headers.forEach(h=>h+='<th>'+h+'</th>');h+='</tr><tr>';x.rows.forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+(c==null?'<i>NULL</i>':c)+'</td>');h+='</tr>';});h+='</table>';document.getElementById('o').innerHTML=h;}else{document.getElementById('o').innerHTML='<div class=ok>'+x.msg.join(', ')+'</div>'}}
-    function c(){document.getElementById('q').value='';document.getElementById('o').innerHTML=''}
-    console.log('SQL Ready '+((performance.now()-T0).toFixed(2)+'ms');
-    </script>
-</body>
-</html>
+<!doctype html><html><head><meta charset=utf-8><title>S</title><style>*{margin:0;padding:0;font:12px sans-serif}body{padding:20px}#q{width:100%;height:80px;padding:8px;font:12px monospace;border:1px solid #ddd;margin-bottom:5px}button{padding:6px 12px;background:#007bff;color:#fff;border:0;border-radius:3px;cursor:pointer;font-size:12px}button:hover{background:#0056b3}#o{padding:8px;border:1px solid #ddd;min-height:40px;font:12px monospace;white-space:pre-wrap}table{border-collapse:collapse;margin-top:5px;font:12px}th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left}th{background:#f0f0f0}.ok{color:#28a745}.err{color:#dc3545}</style></head><body><h1>SQL</h1><textarea id=q placeholder=SQL>CREATE TABLE t(x,y);
+INSERT INTO t VALUES(1,'A');
+INSERT INTO t VALUES(2,'B');
+SELECT * FROM t;</textarea><button onclick=r()>Run</button><button onclick=c()>Clear</button><div id=o></div><script>const D={},T0=performance.now();function pv(v){v=v.trim();if(v==='NULL')return null;if(v.startsWith("'"))return v.slice(1,-1);if(v.startsWith('"'))return v.slice(1,-1);const n=Number(v);return isNaN(n)?v:n}function ct(sql){const m=sql.match(/CREATE\s+TABLE\s+(\w+)\s*\((.*)\)/i);if(!m)return{err:'Invalid CREATE'};D[m[1]]={cols:m[2].split(',').map(c=>({name:c.trim(),type:'TEXT'})),rows:[]};return{ok:true}}function ir(sql){const m=sql.match(/INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)/i);if(!m||!D[m[1]])return{err:'Invalid INSERT'};D[m[1]].rows.push(m[2].split(',').map(pv));return{ok:true}}function sl(sql){const m=sql.match(/SELECT\s+(.*?)\s+FROM\s+(\w+)/i);if(!m||!D[m[2]])return{err:'Invalid SELECT'};const t=D[m[2]],r=[...t.rows],c=m[1].trim();const h=c==='*'?t.cols.map(c=>c.name):c.split(',');if(c!=='*')r.forEach((x,i)=>{r[i]=h.map(c=>x[t.cols.findIndex(y=>y.name===c.trim())])});return{ok:true,rows:r,headers:h}}function r(){const q=document.getElementById('q').value.trim();if(!q)return;const t0=performance.now();const x=sl(q);if(x.err){document.getElementById('o').innerHTML='<div class=err>'+x.err+'</div>'}else if(x.rows){let h='<div class=ok>'+x.rows.length+' rows ('+((performance.now()-t0).toFixed(2)+'ms)</div><table><tr>';x.headers.forEach(h=>h+='<th>'+h+'</th>');h+='</tr>';x.rows.forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+(c==null?'NULL':c)+'</td>');h+='</tr>';});h+='</table>';document.getElementById('o').innerHTML=h;}else{document.getElementById('o').innerHTML='<div class=ok>Done</div>'}}function c(){document.getElementById('q').value='';document.getElementById('o').innerHTML=''}console.log('Ready',((performance.now()-T0).toFixed(2)+'ms');</script></body></html>
