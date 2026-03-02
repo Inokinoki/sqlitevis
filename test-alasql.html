@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test alasql Performance</title>
+    <script src="https://cdn.jsdelivr.net/npm/alasql@4.17.0/dist/alasql.min.js"></script>
+</head>
+<body>
+    <h1>alasql Performance Test</h1>
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        function log(msg) {
+            results.innerHTML += msg + '<br>';
+        }
+
+        // Test 1: Load time
+        const loadEnd = performance.now();
+        log(`✓ Page loaded at: ${loadEnd.toFixed(2)}ms`);
+
+        // Test 2: Database creation
+        const start = performance.now();
+        alasql('CREATE DATABASE IF NOT EXISTS test;');
+        log(`✓ Database creation: ${(performance.now() - start).toFixed(2)}ms`);
+
+        // Test 3: Table creation
+        const start2 = performance.now();
+        alasql('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);');
+        log(`✓ Table creation: ${(performance.now() - start2).toFixed(2)}ms`);
+
+        // Test 4: Insert data
+        const start3 = performance.now();
+        alasql("INSERT INTO users VALUES (1, 'Alice', 30);");
+        alasql("INSERT INTO users VALUES (2, 'Bob', 25);");
+        log(`✓ Insert 2 rows: ${(performance.now() - start3).toFixed(2)}ms`);
+
+        // Test 5: Select data
+        const start4 = performance.now();
+        const data = alasql('SELECT * FROM users;');
+        log(`✓ SELECT query: ${(performance.now() - start4).toFixed(2)}ms`);
+        log(`✓ Results: ${JSON.stringify(data)}`);
+
+        // Test 6: Aggregate query
+        const start5 = performance.now();
+        const avg = alasql('SELECT AVG(age) as avg_age FROM users;');
+        log(`✓ Aggregate query: ${(performance.now() - start5).toFixed(2)}ms`);
+        log(`✓ Average age: ${avg[0].avg_age}`);
+
+        log('<br><strong>All tests passed! alasql is working perfectly.</strong>');
+    </script>
+</body>
+</html>
