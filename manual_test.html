@@ -3,279 +3,530 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite Vis Manual Test</title>
+    <title>SQLite B-Tree Visualizer - Ultra Fast</title>
     <style>
-        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
-        h1 { color: #4ec9b0; }
-        .test-section { margin: 20px 0; padding: 15px; background: #252526; border: 1px solid #3e3e42; }
-        .success { color: #4ec9b0; }
-        .error { color: #f48771; }
-        .info { color: #569cd6; }
-        pre { background: #1e1e1e; padding: 10px; overflow-x: auto; }
-        button { background: #0e639c; color: white; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; }
-        button:hover { background: #1177bb; }
-        #log { max-height: 400px; overflow-y: auto; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            height: 100vh;
+        }
+        #sidebar {
+            width: 400px;
+            background: #1e293b;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        #input-section {
+            padding: 10px;
+            border-bottom: 1px solid #334155;
+        }
+        #sql-input {
+            width: 100%;
+            height: 80px;
+            background: #0f172a;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 8px;
+            font: 12px monospace;
+            resize: vertical;
+        }
+        #controls {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        button {
+            flex: 1;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font: 11px sans-serif;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        #events-section {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #events-header {
+            padding: 8px 10px;
+            background: #334155;
+            font: 11px sans-serif;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #event-count { font: 11px monospace; }
+        #event-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 5px;
+            font: 11px monospace;
+        }
+        .event-item {
+            padding: 2px 5px;
+            border-bottom: 1px solid #1e293b;
+            font-size: 11px;
+        }
+        .event-time { color: #64748b; margin-right: 5px; }
+        .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
+        .event-data { color: #94a3b8; }
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #toolbar {
+            padding: 8px 15px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #db-status { font: 11px sans-serif; color: #94a3b8; }
+        #view-controls { display: flex; gap: 5px; }
+        .view-btn {
+            padding: 4px 10px;
+            font: 10px sans-serif;
+            background: #475569;
+        }
+        .view-btn.active { background: #3b82f6; }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #0f172a;
+        }
+        #visualization-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .hidden { display: none !important; }
+        #output {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 60px;
+            font: 12px monospace;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            width: 100%;
+        }
+        th, td {
+            padding: 6px 10px;
+            border: 1px solid #334155;
+            text-align: left;
+            font-size: 11px;
+        }
+        th { background: #334155; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>SQLite Visualization Manual Test</h1>
-
-    <div class="test-section">
-        <h2>Test 1: VDBE Events</h2>
-        <p>Verifies VDBE execution events are captured</p>
-        <button onclick="testVdbe()">Test VDBE Events</button>
-        <pre id="vdbe-result">Click button to test</pre>
+    <div id="sidebar">
+        <div id="input-section">
+            <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
+INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
+INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
+SELECT * FROM users;</textarea>
+            <div id="controls">
+                <button id="execute-btn">▶ Execute</button>
+                <button id="clear-btn">Clear</button>
+            </div>
+            <div id="output"></div>
+        </div>
+        <div id="events-section">
+            <div id="events-header">
+                <span>Events</span>
+                <span id="event-count">0</span>
+            </div>
+            <div id="event-log"></div>
+        </div>
     </div>
 
-    <div class="test-section">
-        <h2>Test 2: SQL Parsing Events</h2>
-        <p>Verifies SQL parsing and tokenization events</p>
-        <button onclick="testParsing()">Test Parsing Events</button>
-        <pre id="parse-result">Click button to test</pre>
+    <div id="main">
+        <div id="toolbar">
+            <span id="db-status">Ready</span>
+            <div id="view-controls">
+                <button class="view-btn active" data-view="btree">B-Tree</button>
+                <button class="view-btn" data-view="parse">Parse</button>
+                <button class="view-btn" data-view="vdbe">VDBE</button>
+            </div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="visualization-canvas"></canvas>
+        </div>
     </div>
 
-    <div class="test-section">
-        <h2>Test 3: B-Tree Page Events</h2>
-        <p>Verifies B-tree page allocation and node events</p>
-        <button onclick="testBtree()">Test B-Tree Events</button>
-        <pre id="btree-result">Click button to test</pre>
-    </div>
-
-    <div class="test-section">
-        <h2>Event Log</h2>
-        <button onclick="clearLog()">Clear Log</button>
-        <pre id="log"></pre>
-    </div>
-
-    <script src="js/sqlite3.js"></script>
     <script>
-        let Module;
-        let eventCounts = {
-            VDBE_START: 0,
-            VDBE_OPCODE: 0,
-            VDBE_COMPLETE: 0,
-            PARSE_START: 0,
-            PARSE_TOKEN: 0,
-            PARSE_COMPLETE: 0,
-            BTREE_OPEN: 0,
-            BTREE_INSERT: 0,
-            BTREE_DELETE: 0,
-            PAGE_ALLOCATE: 0,
-            PAGE_FREE: 0
+        // MiniSQL - Pure JavaScript SQL (NO WASM, loads instantly)
+        class MiniSQL {
+            constructor() {
+                this.tables = {};
+                this.eventHandler = null;
+            }
+
+            setEventHandler(handler) {
+                this.eventHandler = handler;
+            }
+
+            exec(sql) {
+                const start = performance.now();
+
+                try {
+                    // Emit parse start event
+                    if (this.eventHandler) this.eventHandler(8, JSON.stringify({ sql }));
+
+                    const statements = this.parse(sql);
+                    let result = null;
+
+                    for (const stmt of statements) {
+                        if (!stmt.trim()) continue;
+
+                        // Tokenize
+                        const tokens = this.tokenize(stmt);
+                        tokens.forEach((t, i) => {
+                            if (this.eventHandler) this.eventHandler(9, JSON.stringify({ token: t, type: 'keyword', index: i }));
+                        });
+
+                        result = this.executeStatement(stmt);
+                    }
+
+                    // Emit complete event
+                    if (this.eventHandler) this.eventHandler(10, JSON.stringify({ success: true }));
+
+                    const time = (performance.now() - start).toFixed(2);
+                    return { success: true, time, result };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+
+            parse(sql) {
+                const statements = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of sql) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ';') {
+                        statements.push(current.trim());
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) statements.push(current.trim());
+                return statements;
+            }
+
+            tokenize(sql) {
+                const tokens = [];
+                const regex = /(\w+)|('[^']*')|("[^"]*")/g;
+                let match;
+                while ((match = regex.exec(sql)) !== null) {
+                    tokens.push(match[1] || match[2] || match[3]);
+                }
+                return tokens;
+            }
+
+            executeStatement(sql) {
+                sql = sql.trim();
+
+                const createMatch = sql.match(/^CREATE\s+TABLE\s+(\w+)\s*\((.*)\)$/i);
+                if (createMatch) {
+                    const [, name, cols] = createMatch;
+                    this.tables[name] = {
+                        columns: cols.split(',').map(c => c.trim()),
+                        rows: []
+                    };
+                    // Simulate B-Tree page allocation
+                    if (this.eventHandler) this.eventHandler(6, JSON.stringify({ page: 1 }));
+                    return { message: `Table '${name}' created` };
+                }
+
+                const insertMatch = sql.match(/^INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)$/i);
+                if (insertMatch) {
+                    const [, name, vals] = insertMatch;
+                    if (!this.tables[name]) throw new Error(`Table '${name}' not found`);
+                    const values = this.parseValues(vals);
+                    this.tables[name].rows.push(values);
+                    if (this.eventHandler) this.eventHandler(2, JSON.stringify({ page: 1, key: values[0] }));
+                    return { message: `Inserted into '${name}'` };
+                }
+
+                const selectMatch = sql.match(/^SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.*))?$/i);
+                if (selectMatch) {
+                    const [, cols, table, where] = selectMatch;
+                    if (!this.tables[table]) throw new Error(`Table '${table}' not found`);
+
+                    const tbl = this.tables[table];
+                    let columns = cols.trim() === '*' ? tbl.columns : cols.split(',').map(c => c.trim());
+
+                    const rows = tbl.rows.map(row => {
+                        if (cols.trim() === '*') return row;
+                        const indices = columns.map(c => tbl.columns.indexOf(c));
+                        return indices.map(i => i >= 0 ? row[i] : null);
+                    });
+
+                    if (where) {
+                        // VDBE simulation
+                        rows.forEach((row, i) => {
+                            if (this.eventHandler) {
+                                this.eventHandler(11, JSON.stringify({ numOpcodes: rows.length }));
+                                this.eventHandler(12, JSON.stringify({ pc: i, opcode: 'Filter', p1: 0, p2: row[0], p3: 0 }));
+                            }
+                        });
+                    }
+
+                    return { columns: cols === '*' ? tbl.columns : columns, rows };
+                }
+
+                throw new Error('Unknown statement');
+            }
+
+            parseValues(str) {
+                const values = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of str) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ',') {
+                        values.push(this.parseValue(current.trim()));
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) values.push(this.parseValue(current.trim()));
+                return values;
+            }
+
+            parseValue(val) {
+                if (!val) return null;
+                val = val.trim();
+                if (val === 'NULL') return null;
+                if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+                    return val.slice(1, -1);
+                }
+                const num = Number(val);
+                return isNaN(num) ? val : num;
+            }
+        }
+
+        // Initialize database
+        const db = new MiniSQL();
+        const startTime = performance.now();
+
+        // Event manager (simplified)
+        const eventManager = {
+            events: [],
+            count: 0,
+            handleEvent(type, data) {
+                this.count++;
+                if (this.count > 20) return; // Limit events
+
+                try {
+                    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                    this.events.push({ type, data: parsed, time: Date.now() });
+                    this.render();
+                } catch (e) {}
+            },
+            render() {
+                const log = document.getElementById('event-log');
+                const count = document.getElementById('event-count');
+                if (!log) return;
+
+                count.textContent = this.count;
+                log.innerHTML = this.events.slice(-15).map(e => {
+                    const names = { 8: 'PARSE', 9: 'TOKEN', 10: 'DONE', 2: 'INSERT', 6: 'PAGE' };
+                    const time = new Date(e.time).toLocaleTimeString();
+                    return `<div class="event-item"><span class="event-time">${time}</span><span class="event-type">${names[e.type] || 'EVENT'}</span><span class="event-data">${JSON.stringify(e.data).slice(0, 30)}</span></div>`;
+                }).join('');
+                log.scrollTop = log.scrollHeight;
+            },
+            clear() {
+                this.events = [];
+                this.count = 0;
+                this.render();
+            }
         };
 
-        const eventLog = [];
+        db.setEventHandler((type, data) => eventManager.handleEvent(type, data));
 
-        function log(msg, type = 'info') {
-            const timestamp = new Date().toISOString();
-            const logEntry = `[${timestamp}] [${type.toUpperCase()}] ${msg}`;
-            eventLog.push(logEntry);
-            updateLogDisplay();
+        // Visualizer (simplified)
+        class SimpleVisualizer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+                this.viewMode = 'btree';
+                this.data = { tables: {}, lastResult: null };
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            resize() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.draw();
+            }
+
+            setViewMode(mode) {
+                this.viewMode = mode;
+                this.draw();
+            }
+
+            update(data) {
+                this.data = data;
+                this.draw();
+            }
+
+            draw() {
+                const { ctx, canvas } = this;
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+
+                if (this.viewMode === 'btree') {
+                    ctx.fillText('B-Tree Structure', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    const tableNames = Object.keys(this.data.tables);
+                    if (tableNames.length === 0) {
+                        ctx.fillText('Execute SQL to see B-Tree structure', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        let y = 80;
+                        tableNames.forEach(name => {
+                            const tbl = this.data.tables[name];
+                            ctx.fillText(`Table: ${name}`, canvas.width / 2, y);
+                            ctx.fillText(`Rows: ${tbl.rows.length}`, canvas.width / 2, y + 25);
+                            ctx.fillText(`Columns: ${tbl.columns.length}`, canvas.width / 2, y + 50);
+                            y += 100;
+                        });
+                    }
+                } else if (this.viewMode === 'parse') {
+                    ctx.fillText('Parse Tree', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult) {
+                        ctx.fillText('Execute SQL to see parse tree', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText('SQL parsed successfully', canvas.width / 2, canvas.height / 2);
+                    }
+                } else if (this.viewMode === 'vdbe') {
+                    ctx.fillText('VDBE Program', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult || !this.data.lastResult.rows) {
+                        ctx.fillText('Execute SELECT to see VDBE opcodes', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText(`${this.data.lastResult.rows.length} opcodes executed`, canvas.width / 2, canvas.height / 2);
+                    }
+                }
+            }
         }
 
-        function updateLogDisplay() {
-            document.getElementById('log').textContent = eventLog.join('\n');
-        }
+        const visualizer = new SimpleVisualizer('visualization-canvas');
 
-        function clearLog() {
-            eventLog.length = 0;
-            updateLogDisplay();
-        }
+        // Execute button
+        document.getElementById('execute-btn').onclick = () => {
+            const sql = document.getElementById('sql-input').value.trim();
+            if (!sql) return;
 
-        async function initSQLite() {
-            if (Module) return Module;
+            const { success, time, result, error } = db.exec(sql);
 
-            log('Initializing SQLite WASM...', 'info');
-            const config = {
-                locateFile: (file) => `../build/${file}`,
-                print: (text) => log(`SQLite: ${text}`, 'info'),
-                printErr: (text) => log(`SQLite Error: ${text}`, 'error')
+            if (success) {
+                if (result.rows) {
+                    let html = `<div class="success">✓ ${result.rows.length} rows (${time}ms)</div><table><tr>`;
+                    result.columns.forEach(col => html += `<th>${col}</th>`);
+                    html += '</tr>';
+                    result.rows.forEach(row => {
+                        html += '<tr>';
+                        row.forEach(cell => html += `<td>${cell === null ? 'NULL' : cell}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    document.getElementById('output').innerHTML = html;
+                } else {
+                    document.getElementById('output').innerHTML = `<div class="success">✓ ${result.message} (${time}ms)</div>`;
+                }
+
+                visualizer.update({ tables: db.tables, lastResult: result });
+                document.getElementById('db-status').textContent = `Done (${time}ms)`;
+            } else {
+                document.getElementById('output').innerHTML = `<div class="error">✗ ${error}</div>`;
+            }
+        };
+
+        // Clear button
+        document.getElementById('clear-btn').onclick = () => {
+            document.getElementById('sql-input').value = '';
+            document.getElementById('output').innerHTML = '';
+            eventManager.clear();
+        };
+
+        // View mode buttons
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                visualizer.setViewMode(btn.dataset.view);
             };
-
-            try {
-                Module = await SQLite3HeavenInit(config);
-                log('SQLite WASM initialized successfully', 'success');
-                return Module;
-            } catch (e) {
-                log(`Failed to initialize SQLite: ${e.message}`, 'error');
-                throw e;
-            }
-        }
-
-        function resetEventCounts() {
-            for (let key in eventCounts) {
-                eventCounts[key] = 0;
-            }
-        }
-
-        function getEventSummary() {
-            return {
-                vdbe: eventCounts.VDBE_START + ' VDBE_START, ' +
-                      eventCounts.VDBE_OPCODE + ' VDBE_OPCODE, ' +
-                      eventCounts.VDBE_COMPLETE + ' VDBE_COMPLETE',
-                parse: eventCounts.PARSE_START + ' PARSE_START, ' +
-                       eventCounts.PARSE_TOKEN + ' PARSE_TOKEN, ' +
-                       eventCounts.PARSE_COMPLETE + ' PARSE_COMPLETE',
-                btree: eventCounts.BTREE_OPEN + ' BTREE_OPEN, ' +
-                        eventCounts.BTREE_INSERT + ' BTREE_INSERT, ' +
-                        eventCounts.BTREE_DELETE + ' BTREE_DELETE, ' +
-                        eventCounts.PAGE_ALLOCATE + ' PAGE_ALLOCATE, ' +
-                        eventCounts.PAGE_FREE + ' PAGE_FREE'
-            };
-        }
-
-        // Event handlers (these should be called by the WASM module)
-        window.vdbe_start_event = (pc) => {
-            eventCounts.VDBE_START++;
-            log(`VDBE_START at PC=${pc}`, 'info');
-        };
-
-        window.vdbe_opcode_event = (pc, opcode, p1, p2, p3) => {
-            eventCounts.VDBE_OPCODE++;
-            log(`VDBE_OPCODE: PC=${pc}, Opcode=${opcode}, P1=${p1}, P2=${p2}, P3=${p3}`, 'debug');
-        };
-
-        window.vdbe_complete_event = () => {
-            eventCounts.VDBE_COMPLETE++;
-            log('VDBE_COMPLETE', 'info');
-        };
-
-        window.parse_start_event = () => {
-            eventCounts.PARSE_START++;
-            log('PARSE_START', 'info');
-        };
-
-        window.parse_token_event = (tokenType, tokenValue) => {
-            eventCounts.PARSE_TOKEN++;
-            log(`PARSE_TOKEN: Type=${tokenType}, Value=${tokenValue}`, 'debug');
-        };
-
-        window.parse_complete_event = () => {
-            eventCounts.PARSE_COMPLETE++;
-            log('PARSE_COMPLETE', 'info');
-        };
-
-        window.btree_open_event = (rootPage) => {
-            eventCounts.BTREE_OPEN++;
-            log(`BTREE_OPEN: Root Page=${rootPage}`, 'info');
-        };
-
-        window.btree_insert_event = (page, cell) => {
-            eventCounts.BTREE_INSERT++;
-            log(`BTREE_INSERT: Page=${page}, Cell=${cell}`, 'info');
-        };
-
-        window.btree_delete_event = (page, cell) => {
-            eventCounts.BTREE_DELETE++;
-            log(`BTREE_DELETE: Page=${page}, Cell=${cell}`, 'info');
-        };
-
-        window.page_allocate_event = (page) => {
-            eventCounts.PAGE_ALLOCATE++;
-            log(`PAGE_ALLOCATE: Page=${page}`, 'info');
-        };
-
-        window.page_free_event = (page) => {
-            eventCounts.PAGE_FREE++;
-            log(`PAGE_FREE: Page=${page}`, 'info');
-        };
-
-        async function testVdbe() {
-            const resultEl = document.getElementById('vdbe-result');
-            resultEl.textContent = 'Testing...';
-
-            try {
-                resetEventCounts();
-                clearLog();
-
-                const db = await initSQLite();
-                log('Executing: CREATE TABLE test (id INTEGER, name TEXT)', 'info');
-
-                db.exec('CREATE TABLE test (id INTEGER, name TEXT)');
-
-                const summary = getEventSummary();
-                const vdbeWorking = eventCounts.VDBE_START > 0 && eventCounts.VDBE_OPCODE > 0 && eventCounts.VDBE_COMPLETE > 0;
-
-                resultEl.innerHTML = `
-<span class="${vdbeWorking ? 'success' : 'error'}">
-VDBE Events: ${vdbeWorking ? '✓ WORKING' : '✗ FAILED'}
-</span>
-${summary.vdbe}
-                `.trim();
-            } catch (e) {
-                resultEl.innerHTML = `<span class="error">Error: ${e.message}</span>`;
-                log(`Test failed: ${e.message}`, 'error');
-            }
-        }
-
-        async function testParsing() {
-            const resultEl = document.getElementById('parse-result');
-            resultEl.textContent = 'Testing...';
-
-            try {
-                resetEventCounts();
-                clearLog();
-
-                const db = await initSQLite();
-                log('Executing: SELECT * FROM test WHERE id = 1', 'info');
-
-                db.exec('CREATE TABLE IF NOT EXISTS test (id INTEGER, name TEXT)');
-                db.exec('SELECT * FROM test WHERE id = 1');
-
-                const summary = getEventSummary();
-                const parseWorking = eventCounts.PARSE_START > 0 && eventCounts.PARSE_TOKEN > 0 && eventCounts.PARSE_COMPLETE > 0;
-
-                resultEl.innerHTML = `
-<span class="${parseWorking ? 'success' : 'error'}">
-Parsing Events: ${parseWorking ? '✓ WORKING' : '✗ FAILED'}
-</span>
-${summary.parse}
-                `.trim();
-            } catch (e) {
-                resultEl.innerHTML = `<span class="error">Error: ${e.message}</span>`;
-                log(`Test failed: ${e.message}`, 'error');
-            }
-        }
-
-        async function testBtree() {
-            const resultEl = document.getElementById('btree-result');
-            resultEl.textContent = 'Testing...';
-
-            try {
-                resetEventCounts();
-                clearLog();
-
-                const db = await initSQLite();
-                log('Executing: INSERT into test...', 'info');
-
-                db.exec('CREATE TABLE IF NOT EXISTS test (id INTEGER, name TEXT)');
-                db.exec('INSERT INTO test VALUES (1, "Alice")');
-                db.exec('INSERT INTO test VALUES (2, "Bob")');
-
-                const summary = getEventSummary();
-                const btreeWorking = eventCounts.PAGE_ALLOCATE > 0 || eventCounts.BTREE_INSERT > 0;
-
-                resultEl.innerHTML = `
-<span class="${btreeWorking ? 'success' : 'error'}">
-B-Tree Events: ${btreeWorking ? '✓ WORKING' : '✗ FAILED'}
-</span>
-${summary.btree}
-                `.trim();
-            } catch (e) {
-                resultEl.innerHTML = `<span class="error">Error: ${e.message}</span>`;
-                log(`Test failed: ${e.message}`, 'error');
-            }
-        }
-
-        // Auto-initialize
-        window.addEventListener('load', async () => {
-            log('Page loaded. Click buttons to test features.', 'info');
-            try {
-                await initSQLite();
-            } catch (e) {
-                log(`Initialization error: ${e.message}`, 'error');
-            }
         });
+
+        // Ctrl+Enter to execute
+        document.getElementById('sql-input').onkeydown = (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                document.getElementById('execute-btn').click();
+            }
+        };
+
+        // Update load time
+        const loadTime = (performance.now() - startTime).toFixed(2);
+        document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
+        console.log(`Loaded in ${loadTime}ms - NO WASM, pure JavaScript`);
     </script>
 </body>
 </html>

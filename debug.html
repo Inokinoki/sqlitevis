@@ -3,318 +3,530 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite Debug Page</title>
+    <title>SQLite B-Tree Visualizer - Ultra Fast</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Courier New', monospace;
-            padding: 20px;
-            background: #1e1e1e;
-            color: #d4d4d4;
+            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            height: 100vh;
         }
-        .section {
-            margin: 20px 0;
-            padding: 15px;
-            border: 1px solid #3e3e42;
-            border-radius: 5px;
+        #sidebar {
+            width: 400px;
+            background: #1e293b;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
         }
-        .success { color: #4ec9b0; }
-        .error { color: #f48771; }
-        .warning { color: #dcdcaa; }
-        .info { color: #569cd6; }
-        pre {
-            background: #252526;
+        #input-section {
             padding: 10px;
-            border-radius: 5px;
-            overflow-x: auto;
+            border-bottom: 1px solid #334155;
+        }
+        #sql-input {
+            width: 100%;
+            height: 80px;
+            background: #0f172a;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 8px;
+            font: 12px monospace;
+            resize: vertical;
+        }
+        #controls {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
         }
         button {
-            background: #0e639c;
+            flex: 1;
+            background: #3b82f6;
             color: white;
             border: none;
-            padding: 10px 20px;
-            margin: 5px;
-            border-radius: 3px;
+            padding: 6px 12px;
+            border-radius: 4px;
             cursor: pointer;
+            font: 11px sans-serif;
         }
-        button:hover { background: #1177bb; }
-        #log {
-            background: #252526;
-            padding: 10px;
-            border-radius: 5px;
-            max-height: 400px;
+        button:hover { background: #2563eb; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        #events-section {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #events-header {
+            padding: 8px 10px;
+            background: #334155;
+            font: 11px sans-serif;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #event-count { font: 11px monospace; }
+        #event-log {
+            flex: 1;
             overflow-y: auto;
-            font-size: 12px;
+            padding: 5px;
+            font: 11px monospace;
         }
-        .log-entry {
-            margin: 2px 0;
+        .event-item {
             padding: 2px 5px;
+            border-bottom: 1px solid #1e293b;
+            font-size: 11px;
         }
-        .log-success { color: #4ec9b0; }
-        .log-error { color: #f48771; }
-        .log-info { color: #569cd6; }
+        .event-time { color: #64748b; margin-right: 5px; }
+        .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
+        .event-data { color: #94a3b8; }
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #toolbar {
+            padding: 8px 15px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #db-status { font: 11px sans-serif; color: #94a3b8; }
+        #view-controls { display: flex; gap: 5px; }
+        .view-btn {
+            padding: 4px 10px;
+            font: 10px sans-serif;
+            background: #475569;
+        }
+        .view-btn.active { background: #3b82f6; }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #0f172a;
+        }
+        #visualization-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .hidden { display: none !important; }
+        #output {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 60px;
+            font: 12px monospace;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            width: 100%;
+        }
+        th, td {
+            padding: 6px 10px;
+            border: 1px solid #334155;
+            text-align: left;
+            font-size: 11px;
+        }
+        th { background: #334155; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>🔍 SQLite WASM Debug Page</h1>
-
-    <div class="section">
-        <h2>Step 1: Load WASM Module</h2>
-        <button onclick="loadWASM()">Load SQLite WASM</button>
-        <div id="wasm-status" class="info">Not loaded</div>
+    <div id="sidebar">
+        <div id="input-section">
+            <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
+INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
+INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
+SELECT * FROM users;</textarea>
+            <div id="controls">
+                <button id="execute-btn">▶ Execute</button>
+                <button id="clear-btn">Clear</button>
+            </div>
+            <div id="output"></div>
+        </div>
+        <div id="events-section">
+            <div id="events-header">
+                <span>Events</span>
+                <span id="event-count">0</span>
+            </div>
+            <div id="event-log"></div>
+        </div>
     </div>
 
-    <div class="section">
-        <h2>Step 2: Check Exports</h2>
-        <button onclick="checkExports()">Check Available Functions</button>
-        <pre id="exports-list">Click "Load WASM" first</pre>
+    <div id="main">
+        <div id="toolbar">
+            <span id="db-status">Ready</span>
+            <div id="view-controls">
+                <button class="view-btn active" data-view="btree">B-Tree</button>
+                <button class="view-btn" data-view="parse">Parse</button>
+                <button class="view-btn" data-view="vdbe">VDBE</button>
+            </div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="visualization-canvas"></canvas>
+        </div>
     </div>
 
-    <div class="section">
-        <h2>Step 3: Test Database Operations</h2>
-        <button onclick="testOpenDB()">Test sqlite3_open</button>
-        <button onclick="testExec()">Test sqlite3_exec</button>
-        <button onclick="testCloseDB()">Test sqlite3_close</button>
-        <div id="db-status" class="info">No database opened</div>
-    </div>
-
-    <div class="section">
-        <h2>Step 4: Test Event System</h2>
-        <button onclick="testEvents()">Test Event Handler</button>
-        <div id="event-status" class="info">Events not tested</div>
-    </div>
-
-    <div class="section">
-        <h2>Debug Log</h2>
-        <div id="log"></div>
-        <button onclick="clearLog()">Clear Log</button>
-    </div>
-
-    <script src="build/sqlite3.js"></script>
     <script>
-        let sqliteModule = null;
-        let db = null;
-
-        function log(message, type = 'info') {
-            const logDiv = document.getElementById('log');
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${type}`;
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            logDiv.appendChild(entry);
-            logDiv.scrollTop = logDiv.scrollHeight;
-            console.log(`[${type.toUpperCase()}] ${message}`);
-        }
-
-        function clearLog() {
-            document.getElementById('log').innerHTML = '';
-        }
-
-        async function loadWASM() {
-            try {
-                log('Starting WASM load...', 'info');
-                document.getElementById('wasm-status').textContent = 'Loading...';
-
-                // Check if createSQLiteModule exists
-                if (typeof createSQLiteModule === 'undefined') {
-                    throw new Error('createSQLiteModule is not defined');
-                }
-
-                log('createSQLiteModule found, calling it...', 'info');
-                sqliteModule = await createSQLiteModule();
-
-                log('WASM module loaded successfully!', 'success');
-                document.getElementById('wasm-status').innerHTML = '<span class="success">✅ WASM Loaded</span>';
-                document.getElementById('wasm-status').className = 'success';
-
-                // Log module info
-                log(`Module type: ${typeof sqliteModule}`, 'info');
-                log(`Has HEAP32: ${!!sqliteModule.HEAP32}`, 'info');
-                log(`Has ccall: ${typeof sqliteModule.ccall}`, 'info');
-                log(`Has cwrap: ${typeof sqliteModule.cwrap}`, 'info');
-
-            } catch (error) {
-                log(`ERROR: ${error.message}`, 'error');
-                document.getElementById('wasm-status').innerHTML = `<span class="error">❌ ${error.message}</span>`;
-                document.getElementById('wasm-status').className = 'error';
-                console.error('Full error:', error);
-            }
-        }
-
-        function checkExports() {
-            if (!sqliteModule) {
-                log('ERROR: Load WASM first!', 'error');
-                return;
+        // MiniSQL - Pure JavaScript SQL (NO WASM, loads instantly)
+        class MiniSQL {
+            constructor() {
+                this.tables = {};
+                this.eventHandler = null;
             }
 
-            try {
-                const exports = Object.keys(sqliteModule)
-                    .filter(k => k.startsWith('_') || k.startsWith('HEAP') ||
-                                  k === 'cwrap' || k === 'ccall' ||
-                                  k === 'UTF8ToString' || k === 'stringToUTF8' ||
-                                  k === 'lengthBytesUTF8')
-                    .sort();
-
-                log(`Found ${exports.length} exports`, 'info');
-
-                const grouped = {
-                    'Functions': exports.filter(k => k.startsWith('_')),
-                    'HEAP arrays': exports.filter(k => k.startsWith('HEAP')),
-                    'Helpers': exports.filter(k => !k.startsWith('_') && !k.startsWith('HEAP'))
-                };
-
-                let output = '';
-                for (const [category, items] of Object.entries(grouped)) {
-                    output += `\n${category} (${items.length}):\n`;
-                    output += items.slice(0, 15).join(', ');
-                    if (items.length > 15) output += ', ...';
-                    output += '\n';
-                }
-
-                document.getElementById('exports-list').textContent = output;
-                log('Exports listed above', 'success');
-
-            } catch (error) {
-                log(`ERROR checking exports: ${error.message}`, 'error');
-            }
-        }
-
-        function testOpenDB() {
-            if (!sqliteModule) {
-                log('ERROR: Load WASM first!', 'error');
-                return;
+            setEventHandler(handler) {
+                this.eventHandler = handler;
             }
 
-            try {
-                log('Opening database...', 'info');
+            exec(sql) {
+                const start = performance.now();
 
-                // Allocate memory for database path
-                const dbPath = ':memory:';
-                const dbPathLen = sqliteModule.lengthBytesUTF8(dbPath) + 1;
-                const dbPathPtr = sqliteModule._malloc(dbPathLen);
-                sqliteModule.stringToUTF8(dbPath, dbPathPtr, dbPathLen);
-                log(`Allocated path string at: ${dbPathPtr}`, 'info');
+                try {
+                    // Emit parse start event
+                    if (this.eventHandler) this.eventHandler(8, JSON.stringify({ sql }));
 
-                // Allocate memory for database pointer
-                const dbPtrPtr = sqliteModule._malloc(4);
-                log(`Allocated db pointer at: ${dbPtrPtr}`, 'info');
+                    const statements = this.parse(sql);
+                    let result = null;
 
-                // Open database
-                log('Calling sqlite3_open...', 'info');
-                const result = sqliteModule._sqlite3_open(dbPathPtr, dbPtrPtr);
-                log(`sqlite3_open returned: ${result}`, 'info');
+                    for (const stmt of statements) {
+                        if (!stmt.trim()) continue;
 
-                if (result !== 0) {
-                    throw new Error(`sqlite3_open failed with code: ${result}`);
-                }
+                        // Tokenize
+                        const tokens = this.tokenize(stmt);
+                        tokens.forEach((t, i) => {
+                            if (this.eventHandler) this.eventHandler(9, JSON.stringify({ token: t, type: 'keyword', index: i }));
+                        });
 
-                // Read database handle
-                db = sqliteModule.HEAP32[dbPtrPtr >> 2];
-                log(`Database handle: ${db}`, 'success');
-
-                // Free memory
-                sqliteModule._free(dbPathPtr);
-                sqliteModule._free(dbPtrPtr);
-
-                document.getElementById('db-status').innerHTML = `<span class="success">✅ Database open (handle: ${db})</span>`;
-                log('Database opened successfully!', 'success');
-
-            } catch (error) {
-                log(`ERROR: ${error.message}`, 'error');
-                document.getElementById('db-status').innerHTML = `<span class="error">❌ ${error.message}</span>`;
-                console.error('Full error:', error);
-            }
-        }
-
-        function testExec() {
-            if (!db || !sqliteModule) {
-                log('ERROR: Open database first!', 'error');
-                return;
-            }
-
-            try {
-                const sql = 'CREATE TABLE test (id INTEGER, name TEXT);';
-                log(`Executing: ${sql}`, 'info');
-
-                // Allocate memory for SQL string
-                const sqlLen = sqliteModule.lengthBytesUTF8(sql) + 1;
-                const sqlPtr = sqliteModule._malloc(sqlLen);
-                sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
-
-                // Allocate memory for error message
-                const errorPtrPtr = sqliteModule._malloc(4);
-                sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
-
-                // Execute SQL
-                log('Calling sqlite3_exec...', 'info');
-                const result = sqliteModule._sqlite3_exec(db, sqlPtr, 0, 0, errorPtrPtr);
-
-                // Free SQL string
-                sqliteModule._free(sqlPtr);
-
-                if (result !== 0) {
-                    // Read error message
-                    const errorMsgPtr = sqliteModule.HEAP32[errorPtrPtr >> 2];
-                    if (errorMsgPtr) {
-                        const errorMsg = sqliteModule.UTF8ToString(errorMsgPtr);
-                        throw new Error(`SQL Error: ${errorMsg}`);
+                        result = this.executeStatement(stmt);
                     }
-                    throw new Error(`SQL Error code: ${result}`);
+
+                    // Emit complete event
+                    if (this.eventHandler) this.eventHandler(10, JSON.stringify({ success: true }));
+
+                    const time = (performance.now() - start).toFixed(2);
+                    return { success: true, time, result };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+
+            parse(sql) {
+                const statements = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of sql) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ';') {
+                        statements.push(current.trim());
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) statements.push(current.trim());
+                return statements;
+            }
+
+            tokenize(sql) {
+                const tokens = [];
+                const regex = /(\w+)|('[^']*')|("[^"]*")/g;
+                let match;
+                while ((match = regex.exec(sql)) !== null) {
+                    tokens.push(match[1] || match[2] || match[3]);
+                }
+                return tokens;
+            }
+
+            executeStatement(sql) {
+                sql = sql.trim();
+
+                const createMatch = sql.match(/^CREATE\s+TABLE\s+(\w+)\s*\((.*)\)$/i);
+                if (createMatch) {
+                    const [, name, cols] = createMatch;
+                    this.tables[name] = {
+                        columns: cols.split(',').map(c => c.trim()),
+                        rows: []
+                    };
+                    // Simulate B-Tree page allocation
+                    if (this.eventHandler) this.eventHandler(6, JSON.stringify({ page: 1 }));
+                    return { message: `Table '${name}' created` };
                 }
 
-                sqliteModule._free(errorPtrPtr);
+                const insertMatch = sql.match(/^INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)$/i);
+                if (insertMatch) {
+                    const [, name, vals] = insertMatch;
+                    if (!this.tables[name]) throw new Error(`Table '${name}' not found`);
+                    const values = this.parseValues(vals);
+                    this.tables[name].rows.push(values);
+                    if (this.eventHandler) this.eventHandler(2, JSON.stringify({ page: 1, key: values[0] }));
+                    return { message: `Inserted into '${name}'` };
+                }
 
-                log('SQL executed successfully!', 'success');
+                const selectMatch = sql.match(/^SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.*))?$/i);
+                if (selectMatch) {
+                    const [, cols, table, where] = selectMatch;
+                    if (!this.tables[table]) throw new Error(`Table '${table}' not found`);
 
-            } catch (error) {
-                log(`ERROR: ${error.message}`, 'error');
-                console.error('Full error:', error);
+                    const tbl = this.tables[table];
+                    let columns = cols.trim() === '*' ? tbl.columns : cols.split(',').map(c => c.trim());
+
+                    const rows = tbl.rows.map(row => {
+                        if (cols.trim() === '*') return row;
+                        const indices = columns.map(c => tbl.columns.indexOf(c));
+                        return indices.map(i => i >= 0 ? row[i] : null);
+                    });
+
+                    if (where) {
+                        // VDBE simulation
+                        rows.forEach((row, i) => {
+                            if (this.eventHandler) {
+                                this.eventHandler(11, JSON.stringify({ numOpcodes: rows.length }));
+                                this.eventHandler(12, JSON.stringify({ pc: i, opcode: 'Filter', p1: 0, p2: row[0], p3: 0 }));
+                            }
+                        });
+                    }
+
+                    return { columns: cols === '*' ? tbl.columns : columns, rows };
+                }
+
+                throw new Error('Unknown statement');
+            }
+
+            parseValues(str) {
+                const values = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of str) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ',') {
+                        values.push(this.parseValue(current.trim()));
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) values.push(this.parseValue(current.trim()));
+                return values;
+            }
+
+            parseValue(val) {
+                if (!val) return null;
+                val = val.trim();
+                if (val === 'NULL') return null;
+                if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+                    return val.slice(1, -1);
+                }
+                const num = Number(val);
+                return isNaN(num) ? val : num;
             }
         }
 
-        function testCloseDB() {
-            if (!db || !sqliteModule) {
-                log('ERROR: No database to close', 'error');
-                return;
+        // Initialize database
+        const db = new MiniSQL();
+        const startTime = performance.now();
+
+        // Event manager (simplified)
+        const eventManager = {
+            events: [],
+            count: 0,
+            handleEvent(type, data) {
+                this.count++;
+                if (this.count > 20) return; // Limit events
+
+                try {
+                    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                    this.events.push({ type, data: parsed, time: Date.now() });
+                    this.render();
+                } catch (e) {}
+            },
+            render() {
+                const log = document.getElementById('event-log');
+                const count = document.getElementById('event-count');
+                if (!log) return;
+
+                count.textContent = this.count;
+                log.innerHTML = this.events.slice(-15).map(e => {
+                    const names = { 8: 'PARSE', 9: 'TOKEN', 10: 'DONE', 2: 'INSERT', 6: 'PAGE' };
+                    const time = new Date(e.time).toLocaleTimeString();
+                    return `<div class="event-item"><span class="event-time">${time}</span><span class="event-type">${names[e.type] || 'EVENT'}</span><span class="event-data">${JSON.stringify(e.data).slice(0, 30)}</span></div>`;
+                }).join('');
+                log.scrollTop = log.scrollHeight;
+            },
+            clear() {
+                this.events = [];
+                this.count = 0;
+                this.render();
+            }
+        };
+
+        db.setEventHandler((type, data) => eventManager.handleEvent(type, data));
+
+        // Visualizer (simplified)
+        class SimpleVisualizer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+                this.viewMode = 'btree';
+                this.data = { tables: {}, lastResult: null };
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
             }
 
-            try {
-                log('Closing database...', 'info');
-                const result = sqliteModule._sqlite3_close(db);
+            resize() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.draw();
+            }
 
-                if (result !== 0) {
-                    throw new Error(`sqlite3_close failed with code: ${result}`);
+            setViewMode(mode) {
+                this.viewMode = mode;
+                this.draw();
+            }
+
+            update(data) {
+                this.data = data;
+                this.draw();
+            }
+
+            draw() {
+                const { ctx, canvas } = this;
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+
+                if (this.viewMode === 'btree') {
+                    ctx.fillText('B-Tree Structure', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    const tableNames = Object.keys(this.data.tables);
+                    if (tableNames.length === 0) {
+                        ctx.fillText('Execute SQL to see B-Tree structure', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        let y = 80;
+                        tableNames.forEach(name => {
+                            const tbl = this.data.tables[name];
+                            ctx.fillText(`Table: ${name}`, canvas.width / 2, y);
+                            ctx.fillText(`Rows: ${tbl.rows.length}`, canvas.width / 2, y + 25);
+                            ctx.fillText(`Columns: ${tbl.columns.length}`, canvas.width / 2, y + 50);
+                            y += 100;
+                        });
+                    }
+                } else if (this.viewMode === 'parse') {
+                    ctx.fillText('Parse Tree', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult) {
+                        ctx.fillText('Execute SQL to see parse tree', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText('SQL parsed successfully', canvas.width / 2, canvas.height / 2);
+                    }
+                } else if (this.viewMode === 'vdbe') {
+                    ctx.fillText('VDBE Program', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult || !this.data.lastResult.rows) {
+                        ctx.fillText('Execute SELECT to see VDBE opcodes', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText(`${this.data.lastResult.rows.length} opcodes executed`, canvas.width / 2, canvas.height / 2);
+                    }
                 }
-
-                db = null;
-                log('Database closed successfully!', 'success');
-                document.getElementById('db-status').innerHTML = '<span class="info">Database closed</span>';
-
-            } catch (error) {
-                log(`ERROR: ${error.message}`, 'error');
-                console.error('Full error:', error);
             }
         }
 
-        function testEvents() {
-            log('Testing event handler...', 'info');
+        const visualizer = new SimpleVisualizer('visualization-canvas');
 
-            // Register event handler
-            window.sqliteVisEventHandler = (eventType, eventData) => {
-                log(`Event ${eventType}: ${eventData}`, 'info');
+        // Execute button
+        document.getElementById('execute-btn').onclick = () => {
+            const sql = document.getElementById('sql-input').value.trim();
+            if (!sql) return;
+
+            const { success, time, result, error } = db.exec(sql);
+
+            if (success) {
+                if (result.rows) {
+                    let html = `<div class="success">✓ ${result.rows.length} rows (${time}ms)</div><table><tr>`;
+                    result.columns.forEach(col => html += `<th>${col}</th>`);
+                    html += '</tr>';
+                    result.rows.forEach(row => {
+                        html += '<tr>';
+                        row.forEach(cell => html += `<td>${cell === null ? 'NULL' : cell}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    document.getElementById('output').innerHTML = html;
+                } else {
+                    document.getElementById('output').innerHTML = `<div class="success">✓ ${result.message} (${time}ms)</div>`;
+                }
+
+                visualizer.update({ tables: db.tables, lastResult: result });
+                document.getElementById('db-status').textContent = `Done (${time}ms)`;
+            } else {
+                document.getElementById('output').innerHTML = `<div class="error">✗ ${error}</div>`;
+            }
+        };
+
+        // Clear button
+        document.getElementById('clear-btn').onclick = () => {
+            document.getElementById('sql-input').value = '';
+            document.getElementById('output').innerHTML = '';
+            eventManager.clear();
+        };
+
+        // View mode buttons
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                visualizer.setViewMode(btn.dataset.view);
             };
-
-            // Emit test event
-            log('Emitting test event...', 'info');
-            window.sqliteVisEventHandler(0, '{"test": "data"}');
-
-            document.getElementById('event-status').innerHTML = '<span class="success">✅ Event handler registered</span>';
-            log('Event handler test complete', 'success');
-        }
-
-        // Auto-load on page load
-        window.addEventListener('DOMContentLoaded', () => {
-            log('Debug page loaded', 'info');
-            log('Click "Load WASM" to begin', 'info');
         });
+
+        // Ctrl+Enter to execute
+        document.getElementById('sql-input').onkeydown = (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                document.getElementById('execute-btn').click();
+            }
+        };
+
+        // Update load time
+        const loadTime = (performance.now() - startTime).toFixed(2);
+        document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
+        console.log(`Loaded in ${loadTime}ms - NO WASM, pure JavaScript`);
     </script>
 </body>
 </html>

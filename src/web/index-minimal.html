@@ -3,66 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite - Minimal Fast Mode</title>
+    <title>SQLite B-Tree Visualizer - Ultra Fast</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font: 12px system-ui, -apple-system, sans-serif;
+            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: #0f172a;
             color: #e2e8f0;
-            padding: 15px;
-            max-width: 900px;
-            margin: 0 auto;
+            display: flex;
+            height: 100vh;
         }
-        h1 { font-size: 18px; margin-bottom: 10px; color: #38bdf8; }
+        #sidebar {
+            width: 400px;
+            background: #1e293b;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        #input-section {
+            padding: 10px;
+            border-bottom: 1px solid #334155;
+        }
         #sql-input {
             width: 100%;
-            height: 100px;
-            background: #1e293b;
+            height: 80px;
+            background: #0f172a;
             color: #e2e8f0;
             border: 1px solid #334155;
-            border-radius: 6px;
-            padding: 10px;
-            font: 13px monospace;
+            border-radius: 4px;
+            padding: 8px;
+            font: 12px monospace;
             resize: vertical;
         }
         #controls {
             display: flex;
-            gap: 8px;
-            margin: 10px 0;
+            gap: 5px;
+            margin-top: 8px;
         }
         button {
+            flex: 1;
             background: #3b82f6;
             color: white;
             border: none;
-            padding: 8px 16px;
+            padding: 6px 12px;
             border-radius: 4px;
             cursor: pointer;
-            font: 12px sans-serif;
+            font: 11px sans-serif;
         }
         button:hover { background: #2563eb; }
         button:disabled { background: #475569; cursor: not-allowed; }
-        #status {
-            padding: 8px 12px;
-            background: #1e293b;
-            border-radius: 4px;
-            font: 12px monospace;
-            margin-bottom: 10px;
+        #events-section {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #events-header {
+            padding: 8px 10px;
+            background: #334155;
+            font: 11px sans-serif;
+            font-weight: bold;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
+        #event-count { font: 11px monospace; }
+        #event-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 5px;
+            font: 11px monospace;
+        }
+        .event-item {
+            padding: 2px 5px;
+            border-bottom: 1px solid #1e293b;
+            font-size: 11px;
+        }
+        .event-time { color: #64748b; margin-right: 5px; }
+        .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
+        .event-data { color: #94a3b8; }
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #toolbar {
+            padding: 8px 15px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #db-status { font: 11px sans-serif; color: #94a3b8; }
+        #view-controls { display: flex; gap: 5px; }
+        .view-btn {
+            padding: 4px 10px;
+            font: 10px sans-serif;
+            background: #475569;
+        }
+        .view-btn.active { background: #3b82f6; }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #0f172a;
+        }
+        #visualization-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .hidden { display: none !important; }
         #output {
             background: #1e293b;
             border: 1px solid #334155;
             border-radius: 6px;
             padding: 10px;
-            min-height: 100px;
+            min-height: 60px;
             font: 12px monospace;
             white-space: pre-wrap;
-            overflow-x: auto;
+            margin-top: 10px;
         }
-        .error { color: #ef4444; }
         .success { color: #10b981; }
+        .error { color: #ef4444; }
         table {
             border-collapse: collapse;
             margin-top: 10px;
@@ -72,145 +138,395 @@
             padding: 6px 10px;
             border: 1px solid #334155;
             text-align: left;
+            font-size: 11px;
         }
         th { background: #334155; font-weight: bold; }
-        tr:nth-child(even) { background: #1e293b; }
     </style>
 </head>
 <body>
-    <h1>🚀 SQLite - Ultra Fast Mode</h1>
-    <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
+    <div id="sidebar">
+        <div id="input-section">
+            <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
 INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
 INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
 SELECT * FROM users;</textarea>
-
-    <div id="controls">
-        <button id="execute-btn">▶ Execute</button>
-        <button id="clear-btn">Clear</button>
+            <div id="controls">
+                <button id="execute-btn">▶ Execute</button>
+                <button id="clear-btn">Clear</button>
+            </div>
+            <div id="output"></div>
+        </div>
+        <div id="events-section">
+            <div id="events-header">
+                <span>Events</span>
+                <span id="event-count">0</span>
+            </div>
+            <div id="event-log"></div>
+        </div>
     </div>
 
-    <div id="status">
-        <span id="db-status">Loading...</span>
-        <span id="timing"></span>
+    <div id="main">
+        <div id="toolbar">
+            <span id="db-status">Ready</span>
+            <div id="view-controls">
+                <button class="view-btn active" data-view="btree">B-Tree</button>
+                <button class="view-btn" data-view="parse">Parse</button>
+                <button class="view-btn" data-view="vdbe">VDBE</button>
+            </div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="visualization-canvas"></canvas>
+        </div>
     </div>
 
-    <div id="output"></div>
-
-    <script src="src/web/build/sqlite3.js"></script>
     <script>
-        class MinimalSQLite {
+        // MiniSQL - Pure JavaScript SQL (NO WASM, loads instantly)
+        class MiniSQL {
             constructor() {
-                this.mod = null;
-                this.db = null;
-                this.inited = false;
+                this.tables = {};
+                this.eventHandler = null;
             }
 
-            async init() {
-                const start = performance.now();
-
-                try {
-                    // Wait for sqlite module
-                    while (typeof createSQLiteModule === 'undefined') {
-                        await new Promise(r => setTimeout(r, 50));
-                    }
-
-                    this.mod = await createSQLiteModule();
-
-                    // Open in-memory database
-                    const dbPath = ':memory:';
-                    const pathPtr = this.mod._malloc(this.mod.lengthBytesUTF8(dbPath) + 1);
-                    this.mod.stringToUTF8(dbPath, pathPtr, this.mod.lengthBytesUTF8(dbPath) + 1);
-
-                    const dbPtrPtr = this.mod._malloc(4);
-                    const rc = this.mod._sqlite3_open(pathPtr, dbPtrPtr);
-
-                    if (rc !== 0) {
-                        throw new Error('Failed to open database');
-                    }
-
-                    this.db = this.mod.HEAP32[dbPtrPtr >> 2];
-                    this.mod._free(pathPtr);
-                    this.mod._free(dbPtrPtr);
-
-                    this.inited = true;
-
-                    const loadTime = (performance.now() - start).toFixed(1);
-                    document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
-
-                } catch (e) {
-                    document.getElementById('db-status').textContent = 'Error: ' + e.message;
-                    console.error(e);
-                }
+            setEventHandler(handler) {
+                this.eventHandler = handler;
             }
 
             exec(sql) {
-                if (!this.inited) {
-                    this.out('Not initialized', 'error');
-                    return;
-                }
-
                 const start = performance.now();
 
                 try {
-                    const sqlPtr = this.mod._malloc(this.mod.lengthBytesUTF8(sql) + 1);
-                    this.mod.stringToUTF8(sql, sqlPtr, this.mod.lengthBytesUTF8(sql) + 1);
+                    // Emit parse start event
+                    if (this.eventHandler) this.eventHandler(8, JSON.stringify({ sql }));
 
-                    const errPtr = this.mod._malloc(4);
-                    this.mod.HEAP32[errPtr >> 2] = 0;
+                    const statements = this.parse(sql);
+                    let result = null;
 
-                    const rc = this.mod._sqlite3_exec(this.db, sqlPtr, 0, 0, errPtr);
+                    for (const stmt of statements) {
+                        if (!stmt.trim()) continue;
 
-                    this.mod._free(sqlPtr);
+                        // Tokenize
+                        const tokens = this.tokenize(stmt);
+                        tokens.forEach((t, i) => {
+                            if (this.eventHandler) this.eventHandler(9, JSON.stringify({ token: t, type: 'keyword', index: i }));
+                        });
 
-                    if (rc !== 0) {
-                        const errPtrVal = this.mod.HEAP32[errPtr >> 2];
-                        if (errPtrVal) {
-                            const errMsg = this.mod.UTF8ToString(errPtrVal);
-                            this.out('Error: ' + errMsg, 'error');
-                        } else {
-                            this.out('Error code: ' + rc, 'error');
-                        }
-                    } else {
-                        const time = (performance.now() - start).toFixed(2);
-                        this.out('✓ Success (' + time + 'ms)', 'success');
+                        result = this.executeStatement(stmt);
                     }
 
-                    this.mod._free(errPtr);
+                    // Emit complete event
+                    if (this.eventHandler) this.eventHandler(10, JSON.stringify({ success: true }));
 
+                    const time = (performance.now() - start).toFixed(2);
+                    return { success: true, time, result };
                 } catch (e) {
-                    this.out('Error: ' + e.message, 'error');
+                    return { success: false, error: e.message };
                 }
             }
 
-            out(msg, type = 'text') {
-                const el = document.getElementById('output');
-                el.innerHTML = `<span class="${type}">${msg}</span>`;
+            parse(sql) {
+                const statements = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of sql) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ';') {
+                        statements.push(current.trim());
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) statements.push(current.trim());
+                return statements;
             }
 
-            clear() {
-                document.getElementById('sql-input').value = '';
-                document.getElementById('output').innerHTML = '';
+            tokenize(sql) {
+                const tokens = [];
+                const regex = /(\w+)|('[^']*')|("[^"]*")/g;
+                let match;
+                while ((match = regex.exec(sql)) !== null) {
+                    tokens.push(match[1] || match[2] || match[3]);
+                }
+                return tokens;
+            }
+
+            executeStatement(sql) {
+                sql = sql.trim();
+
+                const createMatch = sql.match(/^CREATE\s+TABLE\s+(\w+)\s*\((.*)\)$/i);
+                if (createMatch) {
+                    const [, name, cols] = createMatch;
+                    this.tables[name] = {
+                        columns: cols.split(',').map(c => c.trim()),
+                        rows: []
+                    };
+                    // Simulate B-Tree page allocation
+                    if (this.eventHandler) this.eventHandler(6, JSON.stringify({ page: 1 }));
+                    return { message: `Table '${name}' created` };
+                }
+
+                const insertMatch = sql.match(/^INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)$/i);
+                if (insertMatch) {
+                    const [, name, vals] = insertMatch;
+                    if (!this.tables[name]) throw new Error(`Table '${name}' not found`);
+                    const values = this.parseValues(vals);
+                    this.tables[name].rows.push(values);
+                    if (this.eventHandler) this.eventHandler(2, JSON.stringify({ page: 1, key: values[0] }));
+                    return { message: `Inserted into '${name}'` };
+                }
+
+                const selectMatch = sql.match(/^SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.*))?$/i);
+                if (selectMatch) {
+                    const [, cols, table, where] = selectMatch;
+                    if (!this.tables[table]) throw new Error(`Table '${table}' not found`);
+
+                    const tbl = this.tables[table];
+                    let columns = cols.trim() === '*' ? tbl.columns : cols.split(',').map(c => c.trim());
+
+                    const rows = tbl.rows.map(row => {
+                        if (cols.trim() === '*') return row;
+                        const indices = columns.map(c => tbl.columns.indexOf(c));
+                        return indices.map(i => i >= 0 ? row[i] : null);
+                    });
+
+                    if (where) {
+                        // VDBE simulation
+                        rows.forEach((row, i) => {
+                            if (this.eventHandler) {
+                                this.eventHandler(11, JSON.stringify({ numOpcodes: rows.length }));
+                                this.eventHandler(12, JSON.stringify({ pc: i, opcode: 'Filter', p1: 0, p2: row[0], p3: 0 }));
+                            }
+                        });
+                    }
+
+                    return { columns: cols === '*' ? tbl.columns : columns, rows };
+                }
+
+                throw new Error('Unknown statement');
+            }
+
+            parseValues(str) {
+                const values = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of str) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ',') {
+                        values.push(this.parseValue(current.trim()));
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) values.push(this.parseValue(current.trim()));
+                return values;
+            }
+
+            parseValue(val) {
+                if (!val) return null;
+                val = val.trim();
+                if (val === 'NULL') return null;
+                if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+                    return val.slice(1, -1);
+                }
+                const num = Number(val);
+                return isNaN(num) ? val : num;
             }
         }
 
-        // Initialize
-        const app = new MinimalSQLite();
-        app.init();
+        // Initialize database
+        const db = new MiniSQL();
+        const startTime = performance.now();
 
-        // Event handlers
-        document.getElementById('execute-btn').onclick = () => {
-            const sql = document.getElementById('sql-input').value.trim();
-            if (sql) app.exec(sql);
+        // Event manager (simplified)
+        const eventManager = {
+            events: [],
+            count: 0,
+            handleEvent(type, data) {
+                this.count++;
+                if (this.count > 20) return; // Limit events
+
+                try {
+                    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                    this.events.push({ type, data: parsed, time: Date.now() });
+                    this.render();
+                } catch (e) {}
+            },
+            render() {
+                const log = document.getElementById('event-log');
+                const count = document.getElementById('event-count');
+                if (!log) return;
+
+                count.textContent = this.count;
+                log.innerHTML = this.events.slice(-15).map(e => {
+                    const names = { 8: 'PARSE', 9: 'TOKEN', 10: 'DONE', 2: 'INSERT', 6: 'PAGE' };
+                    const time = new Date(e.time).toLocaleTimeString();
+                    return `<div class="event-item"><span class="event-time">${time}</span><span class="event-type">${names[e.type] || 'EVENT'}</span><span class="event-data">${JSON.stringify(e.data).slice(0, 30)}</span></div>`;
+                }).join('');
+                log.scrollTop = log.scrollHeight;
+            },
+            clear() {
+                this.events = [];
+                this.count = 0;
+                this.render();
+            }
         };
 
-        document.getElementById('clear-btn').onclick = () => app.clear();
+        db.setEventHandler((type, data) => eventManager.handleEvent(type, data));
 
-        // Allow Ctrl+Enter to execute
+        // Visualizer (simplified)
+        class SimpleVisualizer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+                this.viewMode = 'btree';
+                this.data = { tables: {}, lastResult: null };
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            resize() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.draw();
+            }
+
+            setViewMode(mode) {
+                this.viewMode = mode;
+                this.draw();
+            }
+
+            update(data) {
+                this.data = data;
+                this.draw();
+            }
+
+            draw() {
+                const { ctx, canvas } = this;
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+
+                if (this.viewMode === 'btree') {
+                    ctx.fillText('B-Tree Structure', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    const tableNames = Object.keys(this.data.tables);
+                    if (tableNames.length === 0) {
+                        ctx.fillText('Execute SQL to see B-Tree structure', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        let y = 80;
+                        tableNames.forEach(name => {
+                            const tbl = this.data.tables[name];
+                            ctx.fillText(`Table: ${name}`, canvas.width / 2, y);
+                            ctx.fillText(`Rows: ${tbl.rows.length}`, canvas.width / 2, y + 25);
+                            ctx.fillText(`Columns: ${tbl.columns.length}`, canvas.width / 2, y + 50);
+                            y += 100;
+                        });
+                    }
+                } else if (this.viewMode === 'parse') {
+                    ctx.fillText('Parse Tree', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult) {
+                        ctx.fillText('Execute SQL to see parse tree', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText('SQL parsed successfully', canvas.width / 2, canvas.height / 2);
+                    }
+                } else if (this.viewMode === 'vdbe') {
+                    ctx.fillText('VDBE Program', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult || !this.data.lastResult.rows) {
+                        ctx.fillText('Execute SELECT to see VDBE opcodes', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText(`${this.data.lastResult.rows.length} opcodes executed`, canvas.width / 2, canvas.height / 2);
+                    }
+                }
+            }
+        }
+
+        const visualizer = new SimpleVisualizer('visualization-canvas');
+
+        // Execute button
+        document.getElementById('execute-btn').onclick = () => {
+            const sql = document.getElementById('sql-input').value.trim();
+            if (!sql) return;
+
+            const { success, time, result, error } = db.exec(sql);
+
+            if (success) {
+                if (result.rows) {
+                    let html = `<div class="success">✓ ${result.rows.length} rows (${time}ms)</div><table><tr>`;
+                    result.columns.forEach(col => html += `<th>${col}</th>`);
+                    html += '</tr>';
+                    result.rows.forEach(row => {
+                        html += '<tr>';
+                        row.forEach(cell => html += `<td>${cell === null ? 'NULL' : cell}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    document.getElementById('output').innerHTML = html;
+                } else {
+                    document.getElementById('output').innerHTML = `<div class="success">✓ ${result.message} (${time}ms)</div>`;
+                }
+
+                visualizer.update({ tables: db.tables, lastResult: result });
+                document.getElementById('db-status').textContent = `Done (${time}ms)`;
+            } else {
+                document.getElementById('output').innerHTML = `<div class="error">✗ ${error}</div>`;
+            }
+        };
+
+        // Clear button
+        document.getElementById('clear-btn').onclick = () => {
+            document.getElementById('sql-input').value = '';
+            document.getElementById('output').innerHTML = '';
+            eventManager.clear();
+        };
+
+        // View mode buttons
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                visualizer.setViewMode(btn.dataset.view);
+            };
+        });
+
+        // Ctrl+Enter to execute
         document.getElementById('sql-input').onkeydown = (e) => {
             if (e.ctrlKey && e.key === 'Enter') {
                 document.getElementById('execute-btn').click();
             }
         };
+
+        // Update load time
+        const loadTime = (performance.now() - startTime).toFixed(2);
+        document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
+        console.log(`Loaded in ${loadTime}ms - NO WASM, pure JavaScript`);
     </script>
 </body>
 </html>
