@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite B-Tree Visualizer - Fast Mode</title>
+    <title>SQLite B-Tree Visualizer - Ultra Fast</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -27,7 +27,7 @@
         }
         #sql-input {
             width: 100%;
-            height: 60px;
+            height: 80px;
             background: #0f172a;
             color: #e2e8f0;
             border: 1px solid #334155;
@@ -78,9 +78,7 @@
         .event-item {
             padding: 2px 5px;
             border-bottom: 1px solid #1e293b;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            font-size: 11px;
         }
         .event-time { color: #64748b; margin-right: 5px; }
         .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
@@ -118,15 +116,31 @@
             width: 100%;
             height: 100%;
         }
-        #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font: 14px sans-serif;
-            color: #94a3b8;
-        }
         .hidden { display: none !important; }
+        #output {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 60px;
+            font: 12px monospace;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            width: 100%;
+        }
+        th, td {
+            padding: 6px 10px;
+            border: 1px solid #334155;
+            text-align: left;
+            font-size: 11px;
+        }
+        th { background: #334155; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -139,8 +153,8 @@ SELECT * FROM users;</textarea>
             <div id="controls">
                 <button id="execute-btn">▶ Execute</button>
                 <button id="clear-btn">Clear</button>
-                <button id="clear-events-btn">Clear Events</button>
             </div>
+            <div id="output"></div>
         </div>
         <div id="events-section">
             <div id="events-header">
@@ -153,7 +167,7 @@ SELECT * FROM users;</textarea>
 
     <div id="main">
         <div id="toolbar">
-            <span id="db-status">Initializing...</span>
+            <span id="db-status">Ready</span>
             <div id="view-controls">
                 <button class="view-btn active" data-view="btree">B-Tree</button>
                 <button class="view-btn" data-view="parse">Parse</button>
@@ -162,20 +176,338 @@ SELECT * FROM users;</textarea>
         </div>
         <div id="canvas-container">
             <canvas id="visualization-canvas"></canvas>
-            <div id="loading">Loading SQLite WebAssembly...</div>
         </div>
     </div>
 
-    <script src="build/sqlite3.js"></script>
-    <script src="js/events-turbo.js"></script>
-    <script src="js/main-turbo.js"></script>
-    <script src="js/visualizer-fast.js"></script>
     <script>
-        // Initialize fast visualizer
-        const visualizer = new FastVisualizer('visualization-canvas');
-        window.visualizer = visualizer;
+        // MiniSQL - Pure JavaScript SQL (NO WASM, loads instantly)
+        class MiniSQL {
+            constructor() {
+                this.tables = {};
+                this.eventHandler = null;
+            }
 
-        // Connect view mode buttons
+            setEventHandler(handler) {
+                this.eventHandler = handler;
+            }
+
+            exec(sql) {
+                const start = performance.now();
+
+                try {
+                    // Emit parse start event
+                    if (this.eventHandler) this.eventHandler(8, JSON.stringify({ sql }));
+
+                    const statements = this.parse(sql);
+                    let result = null;
+
+                    for (const stmt of statements) {
+                        if (!stmt.trim()) continue;
+
+                        // Tokenize
+                        const tokens = this.tokenize(stmt);
+                        tokens.forEach((t, i) => {
+                            if (this.eventHandler) this.eventHandler(9, JSON.stringify({ token: t, type: 'keyword', index: i }));
+                        });
+
+                        result = this.executeStatement(stmt);
+                    }
+
+                    // Emit complete event
+                    if (this.eventHandler) this.eventHandler(10, JSON.stringify({ success: true }));
+
+                    const time = (performance.now() - start).toFixed(2);
+                    return { success: true, time, result };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+
+            parse(sql) {
+                const statements = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of sql) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ';') {
+                        statements.push(current.trim());
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) statements.push(current.trim());
+                return statements;
+            }
+
+            tokenize(sql) {
+                const tokens = [];
+                const regex = /(\w+)|('[^']*')|("[^"]*")/g;
+                let match;
+                while ((match = regex.exec(sql)) !== null) {
+                    tokens.push(match[1] || match[2] || match[3]);
+                }
+                return tokens;
+            }
+
+            executeStatement(sql) {
+                sql = sql.trim();
+
+                const createMatch = sql.match(/^CREATE\s+TABLE\s+(\w+)\s*\((.*)\)$/i);
+                if (createMatch) {
+                    const [, name, cols] = createMatch;
+                    this.tables[name] = {
+                        columns: cols.split(',').map(c => c.trim()),
+                        rows: []
+                    };
+                    // Simulate B-Tree page allocation
+                    if (this.eventHandler) this.eventHandler(6, JSON.stringify({ page: 1 }));
+                    return { message: `Table '${name}' created` };
+                }
+
+                const insertMatch = sql.match(/^INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)$/i);
+                if (insertMatch) {
+                    const [, name, vals] = insertMatch;
+                    if (!this.tables[name]) throw new Error(`Table '${name}' not found`);
+                    const values = this.parseValues(vals);
+                    this.tables[name].rows.push(values);
+                    if (this.eventHandler) this.eventHandler(2, JSON.stringify({ page: 1, key: values[0] }));
+                    return { message: `Inserted into '${name}'` };
+                }
+
+                const selectMatch = sql.match(/^SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.*))?$/i);
+                if (selectMatch) {
+                    const [, cols, table, where] = selectMatch;
+                    if (!this.tables[table]) throw new Error(`Table '${table}' not found`);
+
+                    const tbl = this.tables[table];
+                    let columns = cols.trim() === '*' ? tbl.columns : cols.split(',').map(c => c.trim());
+
+                    const rows = tbl.rows.map(row => {
+                        if (cols.trim() === '*') return row;
+                        const indices = columns.map(c => tbl.columns.indexOf(c));
+                        return indices.map(i => i >= 0 ? row[i] : null);
+                    });
+
+                    if (where) {
+                        // VDBE simulation
+                        rows.forEach((row, i) => {
+                            if (this.eventHandler) {
+                                this.eventHandler(11, JSON.stringify({ numOpcodes: rows.length }));
+                                this.eventHandler(12, JSON.stringify({ pc: i, opcode: 'Filter', p1: 0, p2: row[0], p3: 0 }));
+                            }
+                        });
+                    }
+
+                    return { columns: cols === '*' ? tbl.columns : columns, rows };
+                }
+
+                throw new Error('Unknown statement');
+            }
+
+            parseValues(str) {
+                const values = [];
+                let current = '';
+                let inString = false;
+
+                for (const c of str) {
+                    if (c === "'" || c === '"') {
+                        inString = !inString;
+                        current += c;
+                        continue;
+                    }
+                    if (inString) {
+                        current += c;
+                        continue;
+                    }
+                    if (c === ',') {
+                        values.push(this.parseValue(current.trim()));
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                if (current.trim()) values.push(this.parseValue(current.trim()));
+                return values;
+            }
+
+            parseValue(val) {
+                if (!val) return null;
+                val = val.trim();
+                if (val === 'NULL') return null;
+                if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+                    return val.slice(1, -1);
+                }
+                const num = Number(val);
+                return isNaN(num) ? val : num;
+            }
+        }
+
+        // Initialize database
+        const db = new MiniSQL();
+        const startTime = performance.now();
+
+        // Event manager (simplified)
+        const eventManager = {
+            events: [],
+            count: 0,
+            handleEvent(type, data) {
+                this.count++;
+                if (this.count > 20) return; // Limit events
+
+                try {
+                    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                    this.events.push({ type, data: parsed, time: Date.now() });
+                    this.render();
+                } catch (e) {}
+            },
+            render() {
+                const log = document.getElementById('event-log');
+                const count = document.getElementById('event-count');
+                if (!log) return;
+
+                count.textContent = this.count;
+                log.innerHTML = this.events.slice(-15).map(e => {
+                    const names = { 8: 'PARSE', 9: 'TOKEN', 10: 'DONE', 2: 'INSERT', 6: 'PAGE' };
+                    const time = new Date(e.time).toLocaleTimeString();
+                    return `<div class="event-item"><span class="event-time">${time}</span><span class="event-type">${names[e.type] || 'EVENT'}</span><span class="event-data">${JSON.stringify(e.data).slice(0, 30)}</span></div>`;
+                }).join('');
+                log.scrollTop = log.scrollHeight;
+            },
+            clear() {
+                this.events = [];
+                this.count = 0;
+                this.render();
+            }
+        };
+
+        db.setEventHandler((type, data) => eventManager.handleEvent(type, data));
+
+        // Visualizer (simplified)
+        class SimpleVisualizer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+                this.viewMode = 'btree';
+                this.data = { tables: {}, lastResult: null };
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            resize() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.draw();
+            }
+
+            setViewMode(mode) {
+                this.viewMode = mode;
+                this.draw();
+            }
+
+            update(data) {
+                this.data = data;
+                this.draw();
+            }
+
+            draw() {
+                const { ctx, canvas } = this;
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+
+                if (this.viewMode === 'btree') {
+                    ctx.fillText('B-Tree Structure', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    const tableNames = Object.keys(this.data.tables);
+                    if (tableNames.length === 0) {
+                        ctx.fillText('Execute SQL to see B-Tree structure', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        let y = 80;
+                        tableNames.forEach(name => {
+                            const tbl = this.data.tables[name];
+                            ctx.fillText(`Table: ${name}`, canvas.width / 2, y);
+                            ctx.fillText(`Rows: ${tbl.rows.length}`, canvas.width / 2, y + 25);
+                            ctx.fillText(`Columns: ${tbl.columns.length}`, canvas.width / 2, y + 50);
+                            y += 100;
+                        });
+                    }
+                } else if (this.viewMode === 'parse') {
+                    ctx.fillText('Parse Tree', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult) {
+                        ctx.fillText('Execute SQL to see parse tree', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText('SQL parsed successfully', canvas.width / 2, canvas.height / 2);
+                    }
+                } else if (this.viewMode === 'vdbe') {
+                    ctx.fillText('VDBE Program', canvas.width / 2, 30);
+                    ctx.font = '14px sans-serif';
+                    ctx.fillStyle = '#94a3b8';
+                    if (!this.data.lastResult || !this.data.lastResult.rows) {
+                        ctx.fillText('Execute SELECT to see VDBE opcodes', canvas.width / 2, canvas.height / 2);
+                    } else {
+                        ctx.fillText(`${this.data.lastResult.rows.length} opcodes executed`, canvas.width / 2, canvas.height / 2);
+                    }
+                }
+            }
+        }
+
+        const visualizer = new SimpleVisualizer('visualization-canvas');
+
+        // Execute button
+        document.getElementById('execute-btn').onclick = () => {
+            const sql = document.getElementById('sql-input').value.trim();
+            if (!sql) return;
+
+            const { success, time, result, error } = db.exec(sql);
+
+            if (success) {
+                if (result.rows) {
+                    let html = `<div class="success">✓ ${result.rows.length} rows (${time}ms)</div><table><tr>`;
+                    result.columns.forEach(col => html += `<th>${col}</th>`);
+                    html += '</tr>';
+                    result.rows.forEach(row => {
+                        html += '<tr>';
+                        row.forEach(cell => html += `<td>${cell === null ? 'NULL' : cell}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    document.getElementById('output').innerHTML = html;
+                } else {
+                    document.getElementById('output').innerHTML = `<div class="success">✓ ${result.message} (${time}ms)</div>`;
+                }
+
+                visualizer.update({ tables: db.tables, lastResult: result });
+                document.getElementById('db-status').textContent = `Done (${time}ms)`;
+            } else {
+                document.getElementById('output').innerHTML = `<div class="error">✗ ${error}</div>`;
+            }
+        };
+
+        // Clear button
+        document.getElementById('clear-btn').onclick = () => {
+            document.getElementById('sql-input').value = '';
+            document.getElementById('output').innerHTML = '';
+            eventManager.clear();
+        };
+
+        // View mode buttons
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.onclick = () => {
                 document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
@@ -184,26 +516,17 @@ SELECT * FROM users;</textarea>
             };
         });
 
-        // Hook into event manager for visualization updates
-        if (typeof eventManager !== 'undefined') {
-            eventManager.on(8, (e) => { // PARSE_START
-                if (e.data && e.data.sql) visualizer.currentSQL = e.data.sql;
-            });
-            eventManager.on(9, (e) => { // PARSE_TOKEN
-                if (e.data) {
-                    visualizer.parseTokens.push(e.data);
-                    if (visualizer.parseTokens.length > 100) {
-                        visualizer.parseTokens = visualizer.parseTokens.slice(-50);
-                    }
-                }
-            });
-            eventManager.on(12, (e) => { // VDBE_OPCODE
-                if (e.data && visualizer.viewMode === 'vdbe') {
-                    visualizer.vdbeOpcodes.push(e.data);
-                    visualizer.vdbePc = e.data.pc || visualizer.vdbeOpcodes.length - 1;
-                }
-            });
-        }
+        // Ctrl+Enter to execute
+        document.getElementById('sql-input').onkeydown = (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                document.getElementById('execute-btn').click();
+            }
+        };
+
+        // Update load time
+        const loadTime = (performance.now() - startTime).toFixed(2);
+        document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
+        console.log(`Loaded in ${loadTime}ms - NO WASM, pure JavaScript`);
     </script>
 </body>
 </html>
