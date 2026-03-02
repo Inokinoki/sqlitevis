@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SQLite B-Tree Visualization - Optimized</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="src/web/css/style.css">
     <style>
         /* Performance optimizations */
         #loading { display: none; }
@@ -69,12 +69,12 @@ SELECT * FROM users;</textarea>
     </div>
 
     <!-- Load WASM asynchronously -->
-    <script async src="build/sqlite3.js"></script>
+    <script async src="src/web/build/sqlite3.js"></script>
 
     <!-- Load optimized JS after DOM -->
-    <script defer src="js/events-turbo.js"></script>
-    <script defer src="js/visualizer-fast.js"></script>
-    <script defer src="js/main-turbo.js"></script>
+    <script defer src="src/web/js/events-turbo.js"></script>
+    <script defer src="src/web/js/visualizer-fast.js"></script>
+    <script defer src="src/web/js/main-turbo.js"></script>
 
     <!-- Initialize immediately -->
     <script>
