@@ -2,46 +2,186 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0;url=src/web/index.html">
-    <title>Redirecting...</title>
-    <style>
-        body {
-            font-family: -apple-system, sans-serif;
-            background: #0f172a;
-            color: #e2e8f0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .container {
-            text-align: center;
-            padding: 20px;
-        }
-        h1 { color: #38bdf8; margin-bottom: 10px; }
-        p { color: #94a3b8; }
-        .spinner {
-            border: 3px solid #3b82f6;
-            border-top: 3px solid transparent;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite B-Tree Visualization - Fast (with alasql)</title>
+    <link rel="stylesheet" href="src/web/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/alasql@4.17.0/dist/alasql.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>SQLite B-Tree Visualization</h1>
-        <p>Redirecting to application...</p>
-        <div class="spinner"></div>
-        <p><a href="src/web/index.html" style="color: #38bdf8;">Click here if not redirected</a></p>
+        <header>
+            <h1>SQLite B-Tree Visualization</h1>
+            <p class="subtitle">Fast version with alasql (no WASM required)</p>
+        </header>
+
+        <div class="main-layout">
+            <div class="left-panel">
+                <section class="sql-editor-section">
+                    <h2>SQL Editor</h2>
+                    <textarea id="sql-input" placeholder="Enter SQL commands here...
+Example:
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
+SELECT * FROM users;">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
+SELECT * FROM users;</textarea>
+                    <div class="button-group">
+                        <button id="execute-btn" class="btn btn-primary">Execute SQL</button>
+                        <button id="step-btn" class="btn-secondary">Step Through</button>
+                        <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                    </div>
+                </section>
+
+                <section class="output-section">
+                    <h2>Query Results</h2>
+                    <div id="output" class="output-box">
+                        <p class="placeholder">Results will appear here...</p>
+                    </div>
+                </section>
+
+                <section class="events-section">
+                    <h2>Event Log</h2>
+                    <div class="controls">
+                        <label>
+                            <input type="checkbox" id="auto-scroll" checked>
+                            Auto-scroll
+                        </label>
+                        <button id="clear-events-btn" class="btn btn-small">Clear Events</button>
+                    </div>
+                    <div id="event-log" class="event-log"></div>
+                </section>
+            </div>
+
+            <div class="right-panel">
+                <section class="visualization-section">
+                    <h2>B-Tree Visualization</h2>
+                    <div class="view-controls">
+                        <button class="view-btn active" data-view="btree">B-Tree</button>
+                        <button class="view-btn" data-view="parse">Parse Tree</button>
+                        <button class="view-btn" data-view="vdbe">VDBE</button>
+                    </div>
+                    <div id="canvas-container">
+                        <canvas id="visualization-canvas"></canvas>
+                    </div>
+                    <div id="node-info" class="node-info hidden">
+                        <h3>Node Details</h3>
+                        <div id="node-details"></div>
+                    </div>
+                </section>
+            </div>
+        </div>
     </div>
+
+    <script src="src/web/js/events.js"></script>
+    <script src="src/web/js/visualizer.js"></script>
+    <script>
+        // Fast app using alasql (no WASM, loads instantly)
+        class FastSQLiteApp {
+            constructor() {
+                this.db = null;
+                this.visualizer = null;
+                this.eventManager = null;
+            }
+
+            async init() {
+                try {
+                    // Initialize alasql
+                    alasql('CREATE DATABASE IF NOT EXISTS test;');
+
+                    // Setup visualizer
+                    if (typeof BTreeVisualizer !== 'undefined') {
+                        this.visualizer = new BTreeVisualizer('visualization-canvas');
+                    }
+
+                    // Setup event manager
+                    if (typeof EventManager !== 'undefined') {
+                        this.eventManager = eventManager;
+                    }
+
+                    this.setupUIHandlers();
+                    this.updateStatus('Ready (alasql - no WASM)');
+                } catch (error) {
+                    this.updateStatus('Error: ' + error.message);
+                    console.error(error);
+                }
+            }
+
+            setupUIHandlers() {
+                const executeBtn = document.getElementById('execute-btn');
+                const clearBtn = document.getElementById('clear-btn');
+
+                if (executeBtn) {
+                    executeBtn.addEventListener('click', () => this.executeSQL());
+                }
+
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', () => this.clear());
+                }
+            }
+
+            executeSQL() {
+                const sql = document.getElementById('sql-input').value.trim();
+                if (!sql) return;
+
+                try {
+                    const start = performance.now();
+                    const results = alasql(sql);
+                    const time = (performance.now() - start).toFixed(2);
+
+                    this.displayResults(results, time);
+                    this.updateStatus(`Done (${time}ms)`);
+                } catch (error) {
+                    this.updateStatus('Error: ' + error.message);
+                }
+            }
+
+            displayResults(results, time) {
+                const output = document.getElementById('output');
+
+                if (!results || results.length === 0) {
+                    output.innerHTML = '<p class="placeholder">No results</p>';
+                    return;
+                }
+
+                let html = `<p>Showing ${results.length} results (${time}ms)</p>`;
+
+                if (results[0] && typeof results[0] === 'object') {
+                    // Table results
+                    html += '<table><tr>';
+                    const headers = Object.keys(results[0]);
+                    headers.forEach(h => html += `<th>${h}</th>`);
+                    html += '</tr>';
+                    results.forEach(row => {
+                        html += '<tr>';
+                        headers.forEach(h => html += `<td>${row[h] === null ? 'NULL' : row[h]}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                }
+
+                output.innerHTML = html;
+            }
+
+            clear() {
+                document.getElementById('sql-input').value = '';
+                document.getElementById('output').innerHTML = '<p class="placeholder">Results will appear here...</p>';
+            }
+
+            updateStatus(message) {
+                const subtitle = document.querySelector('.subtitle');
+                if (subtitle) {
+                    subtitle.textContent = message;
+                }
+            }
+        }
+
+        // Initialize app when DOM loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = new FastSQLiteApp();
+            app.init();
+        });
+    </script>
 </body>
 </html>
