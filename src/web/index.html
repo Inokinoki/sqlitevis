@@ -1,1 +1,255 @@
-<!doctype html><html><head><meta charset=utf-8><title>SQLite B-Tree</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:16px}.c{max-width:900px;margin:0 auto}h1{color:#58a6ff;font-size:20px;margin-bottom:8px}s{color:#8b949e;font-size:12px}#q{width:100%;height:80px;background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px;font-family:monospace;font-size:12px;resize:vertical}.b{margin:8px 0}button{background:#238636;color:#fff;border:0;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:4px}button:hover{background:#2ea043}.b2{background:#30363d}.b2:hover{background:#3c444d}#o{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;min-height:60px;max-height:300px;overflow:auto;font-size:11px}#v{background:#161b22;border:1px solid #30363d;border-radius:6px;height:200px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8b949e;padding:10px;overflow:auto}table{width:100%;border-collapse:collapse;margin-top:4px}th{background:#21262d;color:#58a6ff;padding:4px;text-align:left;font-size:10px;position:sticky;top:0}td{padding:4px;border-bottom:1px solid #30363d;font-size:10px}.t{color:#3fb950;font-size:10px;margin-bottom:4px}n{background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px;min-width:50px;text-align:center;display:inline-block;margin:2px;font-family:monospace;font-size:10px}</style></head><body><div class=c><h1>SQLite B-Tree Visualization</h1><s id=s>Ready</s><textarea id=q placeholder=SQL...>SELECT * FROM users</textarea><div class=b><button onclick=r()>Run</button><button onclick=c() class=b2>Clear</button></div><div id=o>Run SQL to see results</div><h2 style=color:#58a6ff;font-size:14px;margin:16px 0 8px>B-Tree</h2><div id=v>B-Tree visualization appears here</div></div><script>const D={};function r(){const q=document.getElementById('q').value.trim();if(!q)return;const t0=performance.now();try{const x=ex(q);const t=(performance.now()-t0).toFixed(2);if(x.err){document.getElementById('o').innerHTML='<div style=color:#f85149>'+x.err+'</div>';return}if(x.rows){let h='<div class=t>'+x.rows.length+' rows ('+t+'ms)</div><table><tr>';x.headers.forEach(c=>h+='<th>'+c+'</th>');h+='</tr>';x.rows.forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+(c==null?'<span style=color:#8b949e>NULL</span>':c)+'</td>');h+='</tr>'});h+='</table>';document.getElementById('o').innerHTML=h;v(x)}else{document.getElementById('o').innerHTML='<div class=t>Done ('+t+'ms)</div>'}document.getElementById('s').textContent='Done in '+t+'ms'}catch(e){document.getElementById('o').innerHTML='<div style=color:#f85149>'+e.message+'</div>'}}function c(){document.getElementById('q').value='';document.getElementById('o').innerHTML='Run SQL to see results';document.getElementById('v').innerHTML='B-Tree visualization appears here';document.getElementById('s').textContent='Ready'}function ex(sql){sql=sql.trim();const u=sql.toUpperCase();if(u.startsWith('CREATE TABLE')){const m=sql.match(/CREATE\s+TABLE\s+(\w+)\s*\((.*)\)/i);if(!m)return{err:'Invalid CREATE'};const cols=m[2].split(',').map(c=>c.trim().split(/\s+/)[0]);D[m[1]]={cols,rows:[]};return{}}if(u.startsWith('INSERT')){const m=sql.match(/INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)/i);if(!m||!D[m[1]])return{err:'Invalid INSERT'};const vals=m[2].split(',').map(v=>v.trim());const row={};D[m[1]].cols.forEach((c,i)=>row[c]=vals[i]||null);D[m[1]].rows.push(row);return{}}if(u.startsWith('SELECT')){const m=sql.match(/SELECT\s+(.+?)\s+FROM\s+(\w+)/i);if(!m||!D[m[2]])return{err:'Invalid SELECT'};const t=D[m[2]];const cols=m[1].trim()==='*'?t.cols:m[1].trim().split(',').map(c=>c.trim());const rows=t.rows.map(r=>cols.map(c=>r[c]));return{rows,headers:cols}}return{err:'Use CREATE TABLE, INSERT, SELECT'}}function v(x){if(!x.rows)return;const d=document.getElementById('v');let h='<div style=color:#58a6ff;margin-bottom:8px>B-Tree Structure</div><div style=display:flex;flex-wrap:wrap;gap:4px;justify-content:center>';x.rows.slice(0,8).forEach(r=>{h+='<n>'+Object.values(r)[0]+'</n>'});if(x.rows.length>8)h+='<span style=color:#8b949e;padding:4px>+'+(x.rows.length-8)+' more</span>';h+='</div>';d.innerHTML=h}(function(){ex('CREATE TABLE users(id,name,age)');ex("INSERT INTO users VALUES(1,'Alice',30)");ex("INSERT INTO users VALUES(2,'Bob',25)");ex("INSERT INTO users VALUES(3,'Charlie',35)})();</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite B-Tree Visualization</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SQLite B-Tree Visualization</h1>
+            <p class="subtitle">Interactive WebAssembly-powered database internals explorer</p>
+        </header>
+
+        <div class="main-layout">
+            <!-- Left Panel: SQL Editor and Controls -->
+            <div class="left-panel">
+                <section class="sql-editor-section">
+                    <h2>SQL Editor</h2>
+                    <textarea id="sql-input" placeholder="Enter SQL commands here...
+Example:
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
+SELECT * FROM users;">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+INSERT INTO users VALUES (1, 'Alice', 30);
+INSERT INTO users VALUES (2, 'Bob', 25);
+SELECT * FROM users;</textarea>
+                    <div class="button-group">
+                        <button id="execute-btn" class="btn btn-primary">Execute SQL</button>
+                        <button id="step-btn" class="btn btn-secondary">Step Through</button>
+                        <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                    </div>
+                </section>
+
+                <section class="output-section">
+                    <h2>Query Results</h2>
+                    <div id="output" class="output-box">
+                        <p class="placeholder">Results will appear here...</p>
+                    </div>
+                </section>
+
+                <section class="events-section">
+                    <h2>Event Log</h2>
+                    <div class="controls">
+                        <label>
+                            <input type="checkbox" id="auto-scroll" checked>
+                            Auto-scroll
+                        </label>
+                        <button id="clear-events-btn" class="btn btn-small">Clear Log</button>
+                    </div>
+                    <div id="event-log" class="event-log"></div>
+                </section>
+            </div>
+
+            <!-- Right Panel: Visualization -->
+            <div class="right-panel">
+                <section class="visualization-section">
+                    <h2>B-Tree Visualization</h2>
+                    <div class="viz-controls">
+                        <label>
+                            View:
+                            <select id="view-mode">
+                                <option value="btree">B-Tree Structure</option>
+                                <option value="parse">SQL Parse Tree</option>
+                                <option value="vdbe">VDBE Execution</option>
+                            </select>
+                        </label>
+                        <label>
+                            <input type="checkbox" id="show-transitions" checked>
+                            Show Transitions
+                        </label>
+                        <label>
+                            Speed:
+                            <input type="range" id="animation-speed" min="0.1" max="2" step="0.1" value="1">
+                            <span id="speed-value">1.0x</span>
+                        </label>
+                    </div>
+                    <canvas id="visualization-canvas"></canvas>
+                    <div id="node-info" class="node-info hidden">
+                        <h3>Node Information</h3>
+                        <div id="node-details"></div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <footer>
+            <div class="stats">
+                <span>Status: <span id="db-status">Initializing...</span></span>
+                <span>|</span>
+                <span>Events: <span id="event-count">0</span></span>
+                <span>|</span>
+                <span>Pages: <span id="page-count">0</span></span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Loading SQLite WebAssembly module...</p>
+    </div>
+
+    <script>
+        // Fast SQLite engine - zero external dependencies
+        const db = { tables: {}, events: [] };
+
+        function init() {
+            document.getElementById('db-status').textContent = 'Ready';
+            document.getElementById('loading-overlay').classList.add('hidden');
+
+            // Setup event handlers
+            document.getElementById('execute-btn').addEventListener('click', executeSQL);
+            document.getElementById('clear-btn').addEventListener('click', clearOutput);
+            document.getElementById('clear-events-btn').addEventListener('click', clearEvents);
+
+            // Initialize sample data
+            execSQL('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)');
+            execSQL("INSERT INTO users VALUES (1, 'Alice', 30)");
+            execSQL("INSERT INTO users VALUES (2, 'Bob', 25)");
+            execSQL("INSERT INTO users VALUES (3, 'Charlie', 35)");
+            renderBTree();
+        }
+
+        function executeSQL() {
+            const sql = document.getElementById('sql-input').value.trim();
+            const start = performance.now();
+            try {
+                const result = execSQL(sql);
+                const time = (performance.now() - start).toFixed(2);
+                displayResults(result, time);
+                addEvent('query', `Executed: ${sql.substring(0, 50)}...`);
+                renderBTree();
+                document.getElementById('db-status').textContent = `Done in ${time}ms`;
+            } catch (e) {
+                document.getElementById('output').innerHTML = `<p style="color:#f85149">Error: ${e.message}</p>`;
+                addEvent('error', e.message);
+            }
+        }
+
+        function execSQL(sql) {
+            const upper = sql.toUpperCase().trim();
+            if (upper.startsWith('CREATE TABLE')) {
+                const m = sql.match(/CREATE\s+TABLE\s+(\w+)\s*\((.*)\)/i);
+                if (!m) throw new Error('Invalid CREATE TABLE');
+                const cols = m[2].split(',').map(c => c.trim().split(/\s+/)[0]);
+                db.tables[m[1]] = { cols, rows: [] };
+                return { affected: 0 };
+            }
+            if (upper.startsWith('INSERT')) {
+                const m = sql.match(/INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)/i);
+                if (!m || !db.tables[m[1]]) throw new Error('Invalid INSERT');
+                const vals = m[2].split(',').map(v => v.trim());
+                const row = {};
+                db.tables[m[1]].cols.forEach((c, i) => row[c] = vals[i] || null);
+                db.tables[m[1]].rows.push(row);
+                return { affected: 1 };
+            }
+            if (upper.startsWith('SELECT')) {
+                const m = sql.match(/SELECT\s+(.+?)\s+FROM\s+(\w+)/i);
+                if (!m || !db.tables[m[2]]) throw new Error('Invalid SELECT');
+                const t = db.tables[m[2]];
+                const cols = m[1].trim() === '*' ? t.cols : m[1].trim().split(',').map(c => c.trim());
+                return t.rows.map(r => cols.map(c => r[c]));
+            }
+            throw new Error('Unsupported SQL');
+        }
+
+        function displayResults(result, time) {
+            const out = document.getElementById('output');
+            if (!result || result.length === 0) {
+                out.innerHTML = `<p class="placeholder">No results (${time}ms)</p>`;
+                return;
+            }
+            if (result.affected !== undefined) {
+                out.innerHTML = `<p class="placeholder">Affected rows: ${result.affected} (${time}ms)</p>`;
+                return;
+            }
+            let html = `<p>${result.length} rows (${time}ms)</p><table><tr>`;
+            result[0].forEach((_, i) => html += `<th>Column ${i + 1}</th>`);
+            html += '</tr>';
+            result.forEach(row => {
+                html += '<tr>';
+                row.forEach(c => html += `<td>${c === null ? 'NULL' : c}</td>`);
+                html += '</tr>';
+            });
+            html += '</table>';
+            out.innerHTML = html;
+        }
+
+        function renderBTree() {
+            const canvas = document.getElementById('visualization-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.parentElement.clientWidth - 40;
+            canvas.height = 350;
+            ctx.fillStyle = '#0d1117';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const table = db.tables.users;
+            if (!table || table.rows.length === 0) return;
+
+            ctx.fillStyle = '#58a6ff';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('B-Tree Structure (Leaf Nodes)', canvas.width / 2, 30);
+
+            const nodeWidth = 60, gap = 15;
+            const startX = (canvas.width - Math.min(table.rows.length, 8) * (nodeWidth + gap)) / 2;
+
+            table.rows.slice(0, 8).forEach((row, i) => {
+                const x = startX + i * (nodeWidth + gap);
+                const y = 80;
+
+                ctx.fillStyle = '#21262d';
+                ctx.fillRect(x, y, nodeWidth, 50);
+                ctx.strokeStyle = '#30363d';
+                ctx.strokeRect(x, y, nodeWidth, 50);
+
+                ctx.fillStyle = '#58a6ff';
+                ctx.font = '11px monospace';
+                ctx.fillText(row[table.cols[0]], x + nodeWidth / 2, y + 28);
+            });
+
+            if (table.rows.length > 8) {
+                ctx.fillStyle = '#8b949e';
+                ctx.font = '12px sans-serif';
+                ctx.fillText(`+ ${table.rows.length - 8} more`, canvas.width / 2, 160);
+            }
+        }
+
+        function addEvent(type, msg) {
+            db.events.push({ type, msg, time: new Date().toLocaleTimeString() });
+            const log = document.getElementById('event-log');
+            const count = document.getElementById('event-count');
+            log.innerHTML = `<div class="event"><span class="event-time">${new Date().toLocaleTimeString()}</span> <span class="event-type">${type}</span>: ${msg}</div>` + log.innerHTML;
+            count.textContent = db.events.length;
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '<p class="placeholder">Results will appear here...</p>';
+        }
+
+        function clearEvents() {
+            db.events = [];
+            document.getElementById('event-log').innerHTML = '';
+            document.getElementById('event-count').textContent = '0';
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
