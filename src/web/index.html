@@ -1,4 +1,209 @@
-<!doctype html><html><head><meta charset=utf-8><title>SQL</title><style>*{margin:0;padding:0;font:12px sans-serif}body{padding:20px}#q{width:100%;height:80px;padding:8px;font:12px monospace;border:1px solid #ddd;margin-bottom:5px}button{padding:6px 12px;background:#007bff;color:#fff;border:0;border-radius:3px;cursor:pointer;font-size:12px}button:hover{background:#0056b3}#o{padding:8px;border:1px solid #ddd;min-height:40px;font:12px monospace;white-space:pre-wrap}table{border-collapse:collapse;margin-top:5px;font:12px}th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left}th{background:#f0f0f0}.ok{color:#28a745}.err{color:#dc3545}</style></head><body><h1>SQL</h1><textarea id=q>CREATE TABLE t(x,y);
-INSERT INTO t VALUES(1,'A');
-INSERT INTO t VALUES(2,'B');
-SELECT * FROM t;</textarea><button onclick=r()>Run</button><button onclick=c()>Clear</button><div id=o></div><script>const D={},T0=performance.now();function pv(v){v=v.trim();if(v==='NULL')return null;if(v.startsWith("'"))return v.slice(1,-1);if(v.startsWith('"'))return v.slice(1,-1);const n=Number(v);return isNaN(n)?v:n}function ct(sql){const m=sql.match(/CREATE\s+TABLE\s+(\w+)\s*\((.*)\)/i);if(!m)return{err:'Invalid CREATE'};D[m[1]]={cols:m[2].split(',').map(c=>({name:c.trim(),type:'TEXT'})),rows:[]};return{ok:true}}function ir(sql){const m=sql.match(/INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)/i);if(!m||!D[m[1]])return{err:'Invalid INSERT'};D[m[1]].rows.push(m[2].split(',').map(pv));return{ok:true}}function sl(sql){const m=sql.match(/SELECT\s+(.*?)\s+FROM\s+(\w+)/i);if(!m||!D[m[2]])return{err:'Invalid SELECT'};const t=D[m[2]],r=[...t.rows],c=m[1].trim();const h=c==='*'?t.cols.map(c=>c.name):c.split(',');if(c!=='*')r.forEach((x,i)=>{r[i]=h.map(c=>x[t.cols.findIndex(y=>y.name===c.trim())])});return{ok:true,rows:r,headers:h}}function ex(sql){sql=sql.trim();if(/CREATE\s+TABLE/i.test(sql))return ct(sql);if(/INSERT\s+INTO/i.test(sql))return ir(sql);if(/SELECT/i.test(sql))return sl(sql);return{err:'Unknown command'}}function r(){const q=document.getElementById('q').value.trim();if(!q)return;const t0=performance.now();const stmts=q.split(';').filter(s=>s.trim());let last=null;for(let i=0;i<stmts.length;i++){const x=ex(stmts[i]);if(x.err){document.getElementById('o').innerHTML='<div class=err>'+x.err+'</div>';return}last=x}if(last&&last.rows){let h='<div class=ok>'+last.rows.length+' rows ('+((performance.now()-t0).toFixed(2)+'ms)</div><table><tr>';last.headers.forEach(h=>h+='<th>'+h+'</th>');h+='</tr><tr>';last.rows.forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+(c==null?'NULL':c)+'</td>');h+='</tr>';});h+='</table>';document.getElementById('o').innerHTML=h;}else{document.getElementById('o').innerHTML='<div class=ok>Done ('+((performance.now()-t0).toFixed(2)+'ms)</div>'}}function c(){document.getElementById('q').value='';document.getElementById('o').innerHTML=''}console.log('Ready',((performance.now()-T0).toFixed(2)+'ms');</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite B-Tree Visualizer - Fast Mode</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            height: 100vh;
+        }
+        #sidebar {
+            width: 400px;
+            background: #1e293b;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        #input-section {
+            padding: 10px;
+            border-bottom: 1px solid #334155;
+        }
+        #sql-input {
+            width: 100%;
+            height: 60px;
+            background: #0f172a;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 8px;
+            font: 12px monospace;
+            resize: vertical;
+        }
+        #controls {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        button {
+            flex: 1;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font: 11px sans-serif;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        #events-section {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #events-header {
+            padding: 8px 10px;
+            background: #334155;
+            font: 11px sans-serif;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #event-count { font: 11px monospace; }
+        #event-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 5px;
+            font: 11px monospace;
+        }
+        .event-item {
+            padding: 2px 5px;
+            border-bottom: 1px solid #1e293b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .event-time { color: #64748b; margin-right: 5px; }
+        .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
+        .event-data { color: #94a3b8; }
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #toolbar {
+            padding: 8px 15px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #db-status { font: 11px sans-serif; color: #94a3b8; }
+        #view-controls { display: flex; gap: 5px; }
+        .view-btn {
+            padding: 4px 10px;
+            font: 10px sans-serif;
+            background: #475569;
+        }
+        .view-btn.active { background: #3b82f6; }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #0f172a;
+        }
+        #visualization-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font: 14px sans-serif;
+            color: #94a3b8;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="input-section">
+            <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
+INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
+INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
+SELECT * FROM users;</textarea>
+            <div id="controls">
+                <button id="execute-btn">▶ Execute</button>
+                <button id="clear-btn">Clear</button>
+                <button id="clear-events-btn">Clear Events</button>
+            </div>
+        </div>
+        <div id="events-section">
+            <div id="events-header">
+                <span>Events</span>
+                <span id="event-count">0</span>
+            </div>
+            <div id="event-log"></div>
+        </div>
+    </div>
+
+    <div id="main">
+        <div id="toolbar">
+            <span id="db-status">Initializing...</span>
+            <div id="view-controls">
+                <button class="view-btn active" data-view="btree">B-Tree</button>
+                <button class="view-btn" data-view="parse">Parse</button>
+                <button class="view-btn" data-view="vdbe">VDBE</button>
+            </div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="visualization-canvas"></canvas>
+            <div id="loading">Loading SQLite WebAssembly...</div>
+        </div>
+    </div>
+
+    <script src="build/sqlite3.js"></script>
+    <script src="js/events-turbo.js"></script>
+    <script src="js/main-turbo.js"></script>
+    <script src="js/visualizer-fast.js"></script>
+    <script>
+        // Initialize fast visualizer
+        const visualizer = new FastVisualizer('visualization-canvas');
+        window.visualizer = visualizer;
+
+        // Connect view mode buttons
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                visualizer.setViewMode(btn.dataset.view);
+            };
+        });
+
+        // Hook into event manager for visualization updates
+        if (typeof eventManager !== 'undefined') {
+            eventManager.on(8, (e) => { // PARSE_START
+                if (e.data && e.data.sql) visualizer.currentSQL = e.data.sql;
+            });
+            eventManager.on(9, (e) => { // PARSE_TOKEN
+                if (e.data) {
+                    visualizer.parseTokens.push(e.data);
+                    if (visualizer.parseTokens.length > 100) {
+                        visualizer.parseTokens = visualizer.parseTokens.slice(-50);
+                    }
+                }
+            });
+            eventManager.on(12, (e) => { // VDBE_OPCODE
+                if (e.data && visualizer.viewMode === 'vdbe') {
+                    visualizer.vdbeOpcodes.push(e.data);
+                    visualizer.vdbePc = e.data.pc || visualizer.vdbeOpcodes.length - 1;
+                }
+            });
+        }
+    </script>
+</body>
+</html>
