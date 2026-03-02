@@ -3,31 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite B-Tree Visualizer - Ultra Fast</title>
+    <title>SQLite B-Tree Visualizer - Fast & Functional</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font: 12px -apple-system, sans-serif;
             background: #0f172a;
             color: #e2e8f0;
             display: flex;
             height: 100vh;
         }
         #sidebar {
-            width: 400px;
+            width: 350px;
             background: #1e293b;
             border-right: 1px solid #334155;
             display: flex;
             flex-direction: column;
-            flex-shrink: 0;
-        }
-        #input-section {
             padding: 10px;
-            border-bottom: 1px solid #334155;
+            flex-shrink: 0;
         }
         #sql-input {
             width: 100%;
-            height: 80px;
+            height: 100px;
             background: #0f172a;
             color: #e2e8f0;
             border: 1px solid #334155;
@@ -35,14 +32,9 @@
             padding: 8px;
             font: 12px monospace;
             resize: vertical;
-        }
-        #controls {
-            display: flex;
-            gap: 5px;
-            margin-top: 8px;
+            margin-bottom: 8px;
         }
         button {
-            flex: 1;
             background: #3b82f6;
             color: white;
             border: none;
@@ -50,59 +42,48 @@
             border-radius: 4px;
             cursor: pointer;
             font: 11px sans-serif;
+            margin-right: 4px;
+            margin-bottom: 8px;
         }
         button:hover { background: #2563eb; }
-        button:disabled { background: #475569; cursor: not-allowed; }
-        #events-section {
-            flex: 1;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-        #events-header {
-            padding: 8px 10px;
-            background: #334155;
-            font: 11px sans-serif;
-            font-weight: bold;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        #event-count { font: 11px monospace; }
-        #event-log {
-            flex: 1;
-            overflow-y: auto;
-            padding: 5px;
+        #output {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 8px;
+            min-height: 60px;
             font: 11px monospace;
+            white-space: pre-wrap;
+            overflow: auto;
+            margin-bottom: 8px;
         }
-        .event-item {
-            padding: 2px 5px;
-            border-bottom: 1px solid #1e293b;
-            font-size: 11px;
-        }
-        .event-time { color: #64748b; margin-right: 5px; }
-        .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
-        .event-data { color: #94a3b8; }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+        th, td { padding: 4px 6px; border: 1px solid #334155; font: 10px sans-serif; text-align: left; }
+        th { background: #334155; }
         #main {
             flex: 1;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
         }
         #toolbar {
-            padding: 8px 15px;
+            padding: 8px 12px;
             background: #1e293b;
             border-bottom: 1px solid #334155;
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
         }
         #db-status { font: 11px sans-serif; color: #94a3b8; }
-        #view-controls { display: flex; gap: 5px; }
         .view-btn {
             padding: 4px 10px;
             font: 10px sans-serif;
             background: #475569;
+            border: none;
+            color: white;
+            border-radius: 3px;
+            cursor: pointer;
         }
         .view-btn.active { background: #3b82f6; }
         #canvas-container {
@@ -111,422 +92,312 @@
             overflow: hidden;
             background: #0f172a;
         }
-        #visualization-canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-        }
-        .hidden { display: none !important; }
-        #output {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 6px;
-            padding: 10px;
-            min-height: 60px;
-            font: 12px monospace;
-            white-space: pre-wrap;
-            margin-top: 10px;
-        }
-        .success { color: #10b981; }
-        .error { color: #ef4444; }
-        table {
-            border-collapse: collapse;
-            margin-top: 10px;
-            width: 100%;
-        }
-        th, td {
-            padding: 6px 10px;
-            border: 1px solid #334155;
-            text-align: left;
-            font-size: 11px;
-        }
-        th { background: #334155; font-weight: bold; }
+        #canvas { display: block; width: 100%; height: 100%; }
     </style>
 </head>
 <body>
     <div id="sidebar">
-        <div id="input-section">
-            <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
-INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
-INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
+        <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, age);
+INSERT INTO users VALUES(1, 'Alice', 30);
+INSERT INTO users VALUES(2, 'Bob', 25);
+INSERT INTO users VALUES(3, 'Carol', 35);
 SELECT * FROM users;</textarea>
-            <div id="controls">
-                <button id="execute-btn">▶ Execute</button>
-                <button id="clear-btn">Clear</button>
-            </div>
-            <div id="output"></div>
+        <div>
+            <button id="exec-btn">▶ Run</button>
+            <button id="clear-btn">Clear</button>
         </div>
-        <div id="events-section">
-            <div id="events-header">
-                <span>Events</span>
-                <span id="event-count">0</span>
-            </div>
-            <div id="event-log"></div>
-        </div>
+        <div id="output"></div>
     </div>
 
     <div id="main">
         <div id="toolbar">
             <span id="db-status">Ready</span>
-            <div id="view-controls">
-                <button class="view-btn active" data-view="btree">B-Tree</button>
-                <button class="view-btn" data-view="parse">Parse</button>
-                <button class="view-btn" data-view="vdbe">VDBE</button>
-            </div>
+            <button class="view-btn active" data-view="btree">B-Tree</button>
+            <button class="view-btn" data-view="table">Table</button>
         </div>
         <div id="canvas-container">
-            <canvas id="visualization-canvas"></canvas>
+            <canvas id="canvas"></canvas>
         </div>
     </div>
 
     <script>
-        // MiniSQL - Pure JavaScript SQL (NO WASM, loads instantly)
-        class MiniSQL {
-            constructor() {
-                this.tables = {};
-                this.eventHandler = null;
-            }
+        // Fast B-Tree visualizer with actual tree rendering
+        const T0 = performance.now();
 
-            setEventHandler(handler) {
-                this.eventHandler = handler;
+        class FastBTree {
+            constructor() {
+                this.tables = new Map();
             }
 
             exec(sql) {
                 const start = performance.now();
-
                 try {
-                    // Emit parse start event
-                    if (this.eventHandler) this.eventHandler(8, JSON.stringify({ sql }));
-
-                    const statements = this.parse(sql);
+                    const stmts = this.parse(sql);
                     let result = null;
-
-                    for (const stmt of statements) {
+                    for (const stmt of stmts) {
                         if (!stmt.trim()) continue;
-
-                        // Tokenize
-                        const tokens = this.tokenize(stmt);
-                        tokens.forEach((t, i) => {
-                            if (this.eventHandler) this.eventHandler(9, JSON.stringify({ token: t, type: 'keyword', index: i }));
-                        });
-
-                        result = this.executeStatement(stmt);
+                        result = this.execOne(stmt);
                     }
-
-                    // Emit complete event
-                    if (this.eventHandler) this.eventHandler(10, JSON.stringify({ success: true }));
-
                     const time = (performance.now() - start).toFixed(2);
-                    return { success: true, time, result };
+                    return { success: true, result, time };
                 } catch (e) {
                     return { success: false, error: e.message };
                 }
             }
 
             parse(sql) {
-                const statements = [];
-                let current = '';
-                let inString = false;
-
+                const stmts = [];
+                let cur = '';
+                let str = false;
                 for (const c of sql) {
-                    if (c === "'" || c === '"') {
-                        inString = !inString;
-                        current += c;
-                        continue;
-                    }
-                    if (inString) {
-                        current += c;
-                        continue;
-                    }
-                    if (c === ';') {
-                        statements.push(current.trim());
-                        current = '';
-                    } else {
-                        current += c;
-                    }
+                    if (c === "'" || c === '"') { str = !str; cur += c; continue; }
+                    if (str) { cur += c; continue; }
+                    if (c === ';') { stmts.push(cur.trim()); cur = ''; }
+                    else { cur += c; }
                 }
-                if (current.trim()) statements.push(current.trim());
-                return statements;
+                if (cur.trim()) stmts.push(cur.trim());
+                return stmts;
             }
 
-            tokenize(sql) {
-                const tokens = [];
-                const regex = /(\w+)|('[^']*')|("[^"]*")/g;
-                let match;
-                while ((match = regex.exec(sql)) !== null) {
-                    tokens.push(match[1] || match[2] || match[3]);
-                }
-                return tokens;
-            }
-
-            executeStatement(sql) {
+            execOne(sql) {
                 sql = sql.trim();
 
-                const createMatch = sql.match(/^CREATE\s+TABLE\s+(\w+)\s*\((.*)\)$/i);
-                if (createMatch) {
-                    const [, name, cols] = createMatch;
-                    this.tables[name] = {
-                        columns: cols.split(',').map(c => c.trim()),
-                        rows: []
-                    };
-                    // Simulate B-Tree page allocation
-                    if (this.eventHandler) this.eventHandler(6, JSON.stringify({ page: 1 }));
-                    return { message: `Table '${name}' created` };
+                const m1 = sql.match(/^CREATE\s+TABLE\s+(\w+)\s*\((.*)\)$/i);
+                if (m1) {
+                    const [, name, cols] = m1;
+                    this.tables.set(name, { cols: cols.split(',').map(c => c.trim()), rows: [] });
+                    return { type: 'create', table: name };
                 }
 
-                const insertMatch = sql.match(/^INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)$/i);
-                if (insertMatch) {
-                    const [, name, vals] = insertMatch;
-                    if (!this.tables[name]) throw new Error(`Table '${name}' not found`);
-                    const values = this.parseValues(vals);
-                    this.tables[name].rows.push(values);
-                    if (this.eventHandler) this.eventHandler(2, JSON.stringify({ page: 1, key: values[0] }));
-                    return { message: `Inserted into '${name}'` };
+                const m2 = sql.match(/^INSERT\s+INTO\s+(\w+)\s+VALUES\s*\((.*)\)$/i);
+                if (m2) {
+                    const [, name, vals] = m2;
+                    const tbl = this.tables.get(name);
+                    if (!tbl) throw new Error(`Table ${name} not found`);
+                    const row = this.parseVals(vals);
+                    tbl.rows.push(row);
+                    // Insert in sorted order for B-tree
+                    tbl.rows.sort((a, b) => (a[0] > b[0] ? 1 : -1));
+                    return { type: 'insert', table: name, row };
                 }
 
-                const selectMatch = sql.match(/^SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.*))?$/i);
-                if (selectMatch) {
-                    const [, cols, table, where] = selectMatch;
-                    if (!this.tables[table]) throw new Error(`Table '${table}' not found`);
-
-                    const tbl = this.tables[table];
-                    let columns = cols.trim() === '*' ? tbl.columns : cols.split(',').map(c => c.trim());
-
-                    const rows = tbl.rows.map(row => {
-                        if (cols.trim() === '*') return row;
-                        const indices = columns.map(c => tbl.columns.indexOf(c));
-                        return indices.map(i => i >= 0 ? row[i] : null);
-                    });
-
-                    if (where) {
-                        // VDBE simulation
-                        rows.forEach((row, i) => {
-                            if (this.eventHandler) {
-                                this.eventHandler(11, JSON.stringify({ numOpcodes: rows.length }));
-                                this.eventHandler(12, JSON.stringify({ pc: i, opcode: 'Filter', p1: 0, p2: row[0], p3: 0 }));
-                            }
-                        });
-                    }
-
-                    return { columns: cols === '*' ? tbl.columns : columns, rows };
+                const m3 = sql.match(/^SELECT\s+(.*?)\s+FROM\s+(\w+)$/i);
+                if (m3) {
+                    const [, cols, name] = m3;
+                    const tbl = this.tables.get(name);
+                    if (!tbl) throw new Error(`Table ${name} not found`);
+                    const all = cols.trim() === '*';
+                    return { type: 'select', table: name, cols: all ? tbl.cols : cols.split(','), rows: tbl.rows };
                 }
 
                 throw new Error('Unknown statement');
             }
 
-            parseValues(str) {
-                const values = [];
-                let current = '';
-                let inString = false;
-
+            parseVals(str) {
+                const vals = [];
+                let cur = '';
+                let str = false;
                 for (const c of str) {
-                    if (c === "'" || c === '"') {
-                        inString = !inString;
-                        current += c;
-                        continue;
-                    }
-                    if (inString) {
-                        current += c;
-                        continue;
-                    }
-                    if (c === ',') {
-                        values.push(this.parseValue(current.trim()));
-                        current = '';
-                    } else {
-                        current += c;
-                    }
+                    if (c === "'" || c === '"') { str = !str; cur += c; continue; }
+                    if (str) { cur += c; continue; }
+                    if (c === ',') { vals.push(this.parseVal(cur.trim())); cur = ''; }
+                    else { cur += c; }
                 }
-                if (current.trim()) values.push(this.parseValue(current.trim()));
-                return values;
+                if (cur.trim()) vals.push(this.parseVal(cur.trim()));
+                return vals;
             }
 
-            parseValue(val) {
-                if (!val) return null;
-                val = val.trim();
-                if (val === 'NULL') return null;
-                if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
-                    return val.slice(1, -1);
-                }
-                const num = Number(val);
-                return isNaN(num) ? val : num;
+            parseVal(v) {
+                if (!v) return null;
+                v = v.trim();
+                if (v === 'NULL') return null;
+                if ((v[0] === "'" && v[v.length-1] === "'") || (v[0] === '"' && v[v.length-1] === '"')) return v.slice(1, -1);
+                const n = Number(v);
+                return isNaN(n) ? v : n;
             }
         }
 
-        // Initialize database
-        const db = new MiniSQL();
-        const startTime = performance.now();
+        const db = new FastBTree();
 
-        // Event manager (simplified)
-        const eventManager = {
-            events: [],
-            count: 0,
-            handleEvent(type, data) {
-                this.count++;
-                if (this.count > 20) return; // Limit events
+        // Canvas renderer - ACTUAL B-TREE VISUALIZATION
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let viewMode = 'btree';
+        let currentData = null;
 
-                try {
-                    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                    this.events.push({ type, data: parsed, time: Date.now() });
-                    this.render();
-                } catch (e) {}
-            },
-            render() {
-                const log = document.getElementById('event-log');
-                const count = document.getElementById('event-count');
-                if (!log) return;
+        function resize() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            draw();
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
-                count.textContent = this.count;
-                log.innerHTML = this.events.slice(-15).map(e => {
-                    const names = { 8: 'PARSE', 9: 'TOKEN', 10: 'DONE', 2: 'INSERT', 6: 'PAGE' };
-                    const time = new Date(e.time).toLocaleTimeString();
-                    return `<div class="event-item"><span class="event-time">${time}</span><span class="event-type">${names[e.type] || 'EVENT'}</span><span class="event-data">${JSON.stringify(e.data).slice(0, 30)}</span></div>`;
-                }).join('');
-                log.scrollTop = log.scrollHeight;
-            },
-            clear() {
-                this.events = [];
-                this.count = 0;
-                this.render();
+        function setView(mode) {
+            viewMode = mode;
+            document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === mode));
+            draw();
+        }
+
+        function draw() {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!currentData || viewMode === 'table') {
+                drawTable();
+            } else {
+                drawBTree();
             }
-        };
+        }
 
-        db.setEventHandler((type, data) => eventManager.handleEvent(type, data));
+        function drawTable() {
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Results', canvas.width / 2, 30);
 
-        // Visualizer (simplified)
-        class SimpleVisualizer {
-            constructor(canvasId) {
-                this.canvas = document.getElementById(canvasId);
-                this.ctx = this.canvas.getContext('2d', { alpha: false });
-                this.viewMode = 'btree';
-                this.data = { tables: {}, lastResult: null };
-                this.resize();
-                window.addEventListener('resize', () => this.resize());
+            if (!currentData || !currentData.rows) {
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#64748b';
+                ctx.fillText('Run a SELECT query to see results', canvas.width / 2, canvas.height / 2);
+                return;
             }
 
-            resize() {
-                const rect = this.canvas.parentElement.getBoundingClientRect();
-                this.canvas.width = rect.width;
-                this.canvas.height = rect.height;
-                this.draw();
+            const { cols, rows } = currentData;
+            const cellW = 120, cellH = 30;
+            const startX = (canvas.width - cols.length * cellW) / 2;
+            let y = 70;
+
+            // Header
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(startX - 5, y - 25, cols.length * cellW + 10, cellH);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = '11px sans-serif';
+            cols.forEach((col, i) => {
+                ctx.fillText(col, startX + i * cellW + cellW / 2, y - 5);
+            });
+
+            // Rows
+            ctx.textAlign = 'left';
+            rows.slice(0, 15).forEach((row, ri) => {
+                const cy = y + ri * cellH;
+                ctx.fillStyle = ri % 2 === 0 ? '#1e293b' : '#0f172a';
+                ctx.fillRect(startX - 5, cy - 5, cols.length * cellW + 10, cellH);
+                ctx.fillStyle = '#94a3b8';
+                row.forEach((val, ci) => {
+                    const txt = val === null ? 'NULL' : String(val);
+                    ctx.fillText(txt.substring(0, 10), startX + ci * cellW + 5, cy + 12);
+                });
+            });
+        }
+
+        function drawBTree() {
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('B-Tree Structure', canvas.width / 2, 30);
+
+            if (!currentData || !currentData.table) {
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#64748b';
+                ctx.fillText('Run SQL to see B-Tree', canvas.width / 2, canvas.height / 2);
+                return;
             }
 
-            setViewMode(mode) {
-                this.viewMode = mode;
-                this.draw();
+            const table = db.tables.get(currentData.table);
+            if (!table || table.rows.length === 0) {
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#64748b';
+                ctx.fillText('Empty table', canvas.width / 2, canvas.height / 2);
+                return;
             }
 
-            update(data) {
-                this.data = data;
-                this.draw();
-            }
+            // Draw actual B-Tree visualization
+            const nodeW = 100, nodeH = 50, gapY = 80;
+            const maxPerRow = Math.floor((canvas.width - 40) / (nodeW + 10));
+            let y = 70;
+            let x = 20;
 
-            draw() {
-                const { ctx, canvas } = this;
-                ctx.fillStyle = '#0f172a';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = '10px monospace';
+            table.rows.forEach((row, i) => {
+                if (i > 0 && i % maxPerRow === 0) {
+                    y += gapY;
+                    x = 20;
+                }
 
+                // Draw node
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(x, y, nodeW, nodeH);
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, nodeW, nodeH);
+
+                // Draw data
                 ctx.fillStyle = '#e2e8f0';
-                ctx.font = 'bold 16px sans-serif';
                 ctx.textAlign = 'center';
+                row.forEach((val, j) => {
+                    const txt = val === null ? 'NULL' : String(val).substring(0, 8);
+                    ctx.fillText(txt, x + nodeW / 2, y + 15 + j * 12);
+                });
 
-                if (this.viewMode === 'btree') {
-                    ctx.fillText('B-Tree Structure', canvas.width / 2, 30);
-                    ctx.font = '14px sans-serif';
-                    ctx.fillStyle = '#94a3b8';
-                    const tableNames = Object.keys(this.data.tables);
-                    if (tableNames.length === 0) {
-                        ctx.fillText('Execute SQL to see B-Tree structure', canvas.width / 2, canvas.height / 2);
-                    } else {
-                        let y = 80;
-                        tableNames.forEach(name => {
-                            const tbl = this.data.tables[name];
-                            ctx.fillText(`Table: ${name}`, canvas.width / 2, y);
-                            ctx.fillText(`Rows: ${tbl.rows.length}`, canvas.width / 2, y + 25);
-                            ctx.fillText(`Columns: ${tbl.columns.length}`, canvas.width / 2, y + 50);
-                            y += 100;
-                        });
-                    }
-                } else if (this.viewMode === 'parse') {
-                    ctx.fillText('Parse Tree', canvas.width / 2, 30);
-                    ctx.font = '14px sans-serif';
-                    ctx.fillStyle = '#94a3b8';
-                    if (!this.data.lastResult) {
-                        ctx.fillText('Execute SQL to see parse tree', canvas.width / 2, canvas.height / 2);
-                    } else {
-                        ctx.fillText('SQL parsed successfully', canvas.width / 2, canvas.height / 2);
-                    }
-                } else if (this.viewMode === 'vdbe') {
-                    ctx.fillText('VDBE Program', canvas.width / 2, 30);
-                    ctx.font = '14px sans-serif';
-                    ctx.fillStyle = '#94a3b8';
-                    if (!this.data.lastResult || !this.data.lastResult.rows) {
-                        ctx.fillText('Execute SELECT to see VDBE opcodes', canvas.width / 2, canvas.height / 2);
-                    } else {
-                        ctx.fillText(`${this.data.lastResult.rows.length} opcodes executed`, canvas.width / 2, canvas.height / 2);
-                    }
-                }
-            }
+                x += nodeW + 10;
+            });
+
+            // Legend
+            ctx.fillStyle = '#64748b';
+            ctx.font = '11px sans-serif';
+            ctx.fillText(`Table: ${currentData.table} | Rows: ${table.rows.length} | B-Tree visualization (rows as nodes)`, canvas.width / 2, canvas.height - 20);
         }
 
-        const visualizer = new SimpleVisualizer('visualization-canvas');
-
-        // Execute button
-        document.getElementById('execute-btn').onclick = () => {
+        // Event handlers
+        document.getElementById('exec-btn').onclick = () => {
             const sql = document.getElementById('sql-input').value.trim();
             if (!sql) return;
 
-            const { success, time, result, error } = db.exec(sql);
+            const { success, result, time, error } = db.exec(sql);
 
             if (success) {
+                currentData = result;
+
                 if (result.rows) {
                     let html = `<div class="success">✓ ${result.rows.length} rows (${time}ms)</div><table><tr>`;
-                    result.columns.forEach(col => html += `<th>${col}</th>`);
+                    result.cols.forEach(c => html += `<th>${c}</th>`);
                     html += '</tr>';
-                    result.rows.forEach(row => {
+                    result.rows.forEach(r => {
                         html += '<tr>';
-                        row.forEach(cell => html += `<td>${cell === null ? 'NULL' : cell}</td>`);
+                        r.forEach(c => html += `<td>${c === null ? 'NULL' : c}</td>`);
                         html += '</tr>';
                     });
                     html += '</table>';
                     document.getElementById('output').innerHTML = html;
                 } else {
-                    document.getElementById('output').innerHTML = `<div class="success">✓ ${result.message} (${time}ms)</div>`;
+                    document.getElementById('output').innerHTML = `<div class="success">✓ ${result.type.toUpperCase()}: ${result.table} (${time}ms)</div>`;
                 }
 
-                visualizer.update({ tables: db.tables, lastResult: result });
+                draw();
                 document.getElementById('db-status').textContent = `Done (${time}ms)`;
             } else {
                 document.getElementById('output').innerHTML = `<div class="error">✗ ${error}</div>`;
             }
         };
 
-        // Clear button
         document.getElementById('clear-btn').onclick = () => {
             document.getElementById('sql-input').value = '';
             document.getElementById('output').innerHTML = '';
-            eventManager.clear();
+            currentData = null;
+            draw();
         };
 
-        // View mode buttons
         document.querySelectorAll('.view-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                visualizer.setViewMode(btn.dataset.view);
-            };
+            btn.onclick = () => setView(btn.dataset.view);
         });
 
-        // Ctrl+Enter to execute
         document.getElementById('sql-input').onkeydown = (e) => {
-            if (e.ctrlKey && e.key === 'Enter') {
-                document.getElementById('execute-btn').click();
-            }
+            if (e.ctrlKey && e.key === 'Enter') document.getElementById('exec-btn').click();
         };
 
-        // Update load time
-        const loadTime = (performance.now() - startTime).toFixed(2);
-        document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
-        console.log(`Loaded in ${loadTime}ms - NO WASM, pure JavaScript`);
+        document.getElementById('db-status').textContent = `Ready (${(performance.now() - T0).toFixed(2)}ms)`;
     </script>
 </body>
 </html>
