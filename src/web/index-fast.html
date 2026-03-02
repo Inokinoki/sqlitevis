@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite B-Tree Visualizer - Fast Mode</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            height: 100vh;
+        }
+        #sidebar {
+            width: 400px;
+            background: #1e293b;
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        #input-section {
+            padding: 10px;
+            border-bottom: 1px solid #334155;
+        }
+        #sql-input {
+            width: 100%;
+            height: 60px;
+            background: #0f172a;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 8px;
+            font: 12px monospace;
+            resize: vertical;
+        }
+        #controls {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        button {
+            flex: 1;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font: 11px sans-serif;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        #events-section {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #events-header {
+            padding: 8px 10px;
+            background: #334155;
+            font: 11px sans-serif;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #event-count { font: 11px monospace; }
+        #event-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 5px;
+            font: 11px monospace;
+        }
+        .event-item {
+            padding: 2px 5px;
+            border-bottom: 1px solid #1e293b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .event-time { color: #64748b; margin-right: 5px; }
+        .event-type { color: #38bdf8; font-weight: bold; margin-right: 5px; }
+        .event-data { color: #94a3b8; }
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #toolbar {
+            padding: 8px 15px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #db-status { font: 11px sans-serif; color: #94a3b8; }
+        #view-controls { display: flex; gap: 5px; }
+        .view-btn {
+            padding: 4px 10px;
+            font: 10px sans-serif;
+            background: #475569;
+        }
+        .view-btn.active { background: #3b82f6; }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #0f172a;
+        }
+        #visualization-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font: 14px sans-serif;
+            color: #94a3b8;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="input-section">
+            <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
+INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
+INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
+SELECT * FROM users;</textarea>
+            <div id="controls">
+                <button id="execute-btn">▶ Execute</button>
+                <button id="clear-btn">Clear</button>
+                <button id="clear-events-btn">Clear Events</button>
+            </div>
+        </div>
+        <div id="events-section">
+            <div id="events-header">
+                <span>Events</span>
+                <span id="event-count">0</span>
+            </div>
+            <div id="event-log"></div>
+        </div>
+    </div>
+
+    <div id="main">
+        <div id="toolbar">
+            <span id="db-status">Initializing...</span>
+            <div id="view-controls">
+                <button class="view-btn active" data-view="btree">B-Tree</button>
+                <button class="view-btn" data-view="parse">Parse</button>
+                <button class="view-btn" data-view="vdbe">VDBE</button>
+            </div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="visualization-canvas"></canvas>
+            <div id="loading">Loading SQLite WebAssembly...</div>
+        </div>
+    </div>
+
+    <script src="build/sqlite3.js"></script>
+    <script src="js/events-turbo.js"></script>
+    <script src="js/main-turbo.js"></script>
+    <script src="js/visualizer-fast.js"></script>
+    <script>
+        // Initialize fast visualizer
+        const visualizer = new FastVisualizer('visualization-canvas');
+        window.visualizer = visualizer;
+
+        // Connect view mode buttons
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                visualizer.setViewMode(btn.dataset.view);
+            };
+        });
+
+        // Hook into event manager for visualization updates
+        if (typeof eventManager !== 'undefined') {
+            eventManager.on(8, (e) => { // PARSE_START
+                if (e.data && e.data.sql) visualizer.currentSQL = e.data.sql;
+            });
+            eventManager.on(9, (e) => { // PARSE_TOKEN
+                if (e.data) {
+                    visualizer.parseTokens.push(e.data);
+                    if (visualizer.parseTokens.length > 100) {
+                        visualizer.parseTokens = visualizer.parseTokens.slice(-50);
+                    }
+                }
+            });
+            eventManager.on(12, (e) => { // VDBE_OPCODE
+                if (e.data && visualizer.viewMode === 'vdbe') {
+                    visualizer.vdbeOpcodes.push(e.data);
+                    visualizer.vdbePc = e.data.pc || visualizer.vdbeOpcodes.length - 1;
+                }
+            });
+        }
+    </script>
+</body>
+</html>

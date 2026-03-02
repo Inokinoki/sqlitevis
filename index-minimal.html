@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite - Minimal Fast Mode</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font: 12px system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 15px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { font-size: 18px; margin-bottom: 10px; color: #38bdf8; }
+        #sql-input {
+            width: 100%;
+            height: 100px;
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            font: 13px monospace;
+            resize: vertical;
+        }
+        #controls {
+            display: flex;
+            gap: 8px;
+            margin: 10px 0;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font: 12px sans-serif;
+        }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        #status {
+            padding: 8px 12px;
+            background: #1e293b;
+            border-radius: 4px;
+            font: 12px monospace;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+        }
+        #output {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 100px;
+            font: 12px monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        .error { color: #ef4444; }
+        .success { color: #10b981; }
+        table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            width: 100%;
+        }
+        th, td {
+            padding: 6px 10px;
+            border: 1px solid #334155;
+            text-align: left;
+        }
+        th { background: #334155; font-weight: bold; }
+        tr:nth-child(even) { background: #1e293b; }
+    </style>
+</head>
+<body>
+    <h1>🚀 SQLite - Ultra Fast Mode</h1>
+    <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, email);
+INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');
+INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');
+SELECT * FROM users;</textarea>
+
+    <div id="controls">
+        <button id="execute-btn">▶ Execute</button>
+        <button id="clear-btn">Clear</button>
+    </div>
+
+    <div id="status">
+        <span id="db-status">Loading...</span>
+        <span id="timing"></span>
+    </div>
+
+    <div id="output"></div>
+
+    <script src="src/web/build/sqlite3.js"></script>
+    <script>
+        class MinimalSQLite {
+            constructor() {
+                this.mod = null;
+                this.db = null;
+                this.inited = false;
+            }
+
+            async init() {
+                const start = performance.now();
+
+                try {
+                    // Wait for sqlite module
+                    while (typeof createSQLiteModule === 'undefined') {
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+
+                    this.mod = await createSQLiteModule();
+
+                    // Open in-memory database
+                    const dbPath = ':memory:';
+                    const pathPtr = this.mod._malloc(this.mod.lengthBytesUTF8(dbPath) + 1);
+                    this.mod.stringToUTF8(dbPath, pathPtr, this.mod.lengthBytesUTF8(dbPath) + 1);
+
+                    const dbPtrPtr = this.mod._malloc(4);
+                    const rc = this.mod._sqlite3_open(pathPtr, dbPtrPtr);
+
+                    if (rc !== 0) {
+                        throw new Error('Failed to open database');
+                    }
+
+                    this.db = this.mod.HEAP32[dbPtrPtr >> 2];
+                    this.mod._free(pathPtr);
+                    this.mod._free(dbPtrPtr);
+
+                    this.inited = true;
+
+                    const loadTime = (performance.now() - start).toFixed(1);
+                    document.getElementById('db-status').textContent = `Ready (${loadTime}ms)`;
+
+                } catch (e) {
+                    document.getElementById('db-status').textContent = 'Error: ' + e.message;
+                    console.error(e);
+                }
+            }
+
+            exec(sql) {
+                if (!this.inited) {
+                    this.out('Not initialized', 'error');
+                    return;
+                }
+
+                const start = performance.now();
+
+                try {
+                    const sqlPtr = this.mod._malloc(this.mod.lengthBytesUTF8(sql) + 1);
+                    this.mod.stringToUTF8(sql, sqlPtr, this.mod.lengthBytesUTF8(sql) + 1);
+
+                    const errPtr = this.mod._malloc(4);
+                    this.mod.HEAP32[errPtr >> 2] = 0;
+
+                    const rc = this.mod._sqlite3_exec(this.db, sqlPtr, 0, 0, errPtr);
+
+                    this.mod._free(sqlPtr);
+
+                    if (rc !== 0) {
+                        const errPtrVal = this.mod.HEAP32[errPtr >> 2];
+                        if (errPtrVal) {
+                            const errMsg = this.mod.UTF8ToString(errPtrVal);
+                            this.out('Error: ' + errMsg, 'error');
+                        } else {
+                            this.out('Error code: ' + rc, 'error');
+                        }
+                    } else {
+                        const time = (performance.now() - start).toFixed(2);
+                        this.out('✓ Success (' + time + 'ms)', 'success');
+                    }
+
+                    this.mod._free(errPtr);
+
+                } catch (e) {
+                    this.out('Error: ' + e.message, 'error');
+                }
+            }
+
+            out(msg, type = 'text') {
+                const el = document.getElementById('output');
+                el.innerHTML = `<span class="${type}">${msg}</span>`;
+            }
+
+            clear() {
+                document.getElementById('sql-input').value = '';
+                document.getElementById('output').innerHTML = '';
+            }
+        }
+
+        // Initialize
+        const app = new MinimalSQLite();
+        app.init();
+
+        // Event handlers
+        document.getElementById('execute-btn').onclick = () => {
+            const sql = document.getElementById('sql-input').value.trim();
+            if (sql) app.exec(sql);
+        };
+
+        document.getElementById('clear-btn').onclick = () => app.clear();
+
+        // Allow Ctrl+Enter to execute
+        document.getElementById('sql-input').onkeydown = (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                document.getElementById('execute-btn').click();
+            }
+        };
+    </script>
+</body>
+</html>
