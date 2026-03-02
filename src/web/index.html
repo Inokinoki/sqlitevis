@@ -68,12 +68,24 @@ SELECT * FROM users;</textarea>
         </div>
     </div>
 
-    <!-- Load WASM first -->
-    <script src="build/sqlite3.js"></script>
+    <!-- Load WASM asynchronously -->
+    <script async src="build/sqlite3.js"></script>
 
-    <!-- Use OPTIMIZED JavaScript files -->
-    <script src="js/events-turbo.js"></script>
-    <script src="js/visualizer-fast.js"></script>
-    <script src="js/main-turbo.js"></script>
+    <!-- Load optimized JS after DOM -->
+    <script defer src="js/events-turbo.js"></script>
+    <script defer src="js/visualizer-fast.js"></script>
+    <script defer src="js/main-turbo.js"></script>
+
+    <!-- Initialize immediately -->
+    <script>
+        // Don't wait for WASM - show UI immediately
+        document.addEventListener('DOMContentLoaded', () => {
+            // Show ready state
+            const statusEl = document.getElementById('db-status');
+            if (statusEl) {
+                statusEl.textContent = 'Loading SQLite... (you can type SQL now)';
+            }
+        });
+    </script>
 </body>
 </html>
