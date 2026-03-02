@@ -3,265 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite B-Tree Visualization - Instant Load</title>
+    <title>SQLite - Fast SQL</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #eee; line-height: 1.6; padding: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; }
-        header { text-align: center; margin-bottom: 30px; }
-        h1 { color: #4e9af1; margin-bottom: 10px; }
-        .subtitle { color: #8892b0; }
-        .main-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        @media (max-width: 900px) { .main-layout { grid-template-columns: 1fr; } }
-        section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-        h2 { color: #4e9af1; margin-bottom: 15px; font-size: 1.2em; }
-        textarea { width: 100%; min-height: 150px; background: #0f3460; color: #eee; border: 1px solid #4e9af1; border-radius: 4px; padding: 10px; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; resize: vertical; }
-        .btn { background: #4e9af1; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 10px; }
-        .btn:hover { background: #3b7dd8; }
-        .btn:disabled { background: #666; cursor: not-allowed; opacity: 0.6; }
-        .btn-secondary { background: #0f3460; }
-        .btn-secondary:hover { background: #1a4a8c; }
-        .output-box { background: #0f3460; border-radius: 4px; padding: 15px; min-height: 100px; max-height: 400px; overflow: auto; }
-        .placeholder { color: #8892b0; text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #4e9af1; }
-        th { background: #0f3460; color: #4e9af1; }
-        tr:hover { background: #1a4a8c; }
-        #canvas-container { background: #0f3460; border-radius: 4px; height: 400px; display: flex; align-items: center; justify-content: center; }
-        canvas { max-width: 100%; }
-        .loading { text-align: center; padding: 20px; color: #4e9af1; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: #58a6ff; margin-bottom: 5px; }
+        .status { color: #8b949e; font-size: 14px; margin-bottom: 20px; }
+        textarea { width: 100%; height: 150px; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: 'SF Mono', Monaco, monospace; font-size: 13px; resize: vertical; }
+        .btn-row { margin: 15px 0; }
+        button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        button:hover { background: #2ea043; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #30363d; }
+        .btn-secondary:hover { background: #3c444d; }
+        .output { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 15px; min-height: 100px; max-height: 500px; overflow: auto; }
+        .placeholder { color: #8b949e; text-align: center; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th { background: #21262d; color: #58a6ff; text-align: left; padding: 8px; position: sticky; top: 0; border-bottom: 1px solid #30363d; }
+        td { padding: 8px; border-bottom: 1px solid #21262d; }
+        tr:hover { background: #161b22; }
+        .timing { color: #3fb950; font-size: 12px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>SQLite B-Tree Visualization</h1>
-            <p class="subtitle" id="status">Ready - Instant Load ✓</p>
-        </header>
+        <h1>SQLite Query Engine</h1>
+        <p class="status" id="status">Ready - Instant load</p>
 
-        <div class="main-layout">
-            <div class="left-panel">
-                <section>
-                    <h2>SQL Editor</h2>
-                    <textarea id="sql-input" placeholder="Enter SQL commands...">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+        <textarea id="sql" placeholder="Enter SQL...">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES (1, 'Alice', 30);
 INSERT INTO users VALUES (2, 'Bob', 25);
 SELECT * FROM users;</textarea>
-                    <div style="margin-top: 10px;">
-                        <button id="execute-btn" class="btn">Execute SQL</button>
-                        <button id="clear-btn" class="btn btn-secondary">Clear</button>
-                    </div>
-                </section>
 
-                <section>
-                    <h2>Query Results</h2>
-                    <div id="output" class="output-box">
-                        <p class="placeholder">Results will appear here...</p>
-                    </div>
-                </section>
-            </div>
+        <div class="btn-row">
+            <button id="run">Run SQL</button>
+            <button id="clear" class="btn-secondary">Clear</button>
+        </div>
 
-            <div class="right-panel">
-                <section>
-                    <h2>B-Tree Visualization</h2>
-                    <div id="canvas-container">
-                        <canvas id="visualization-canvas"></canvas>
-                    </div>
-                </section>
-            </div>
+        <div class="output" id="output">
+            <div class="placeholder">Results appear here</div>
         </div>
     </div>
 
     <script>
-        // INSTANT load - defer alasql until needed
-        class InstantSQLiteApp {
-            constructor() {
-                this.canvas = document.getElementById('visualization-canvas');
-                this.ctx = this.canvas.getContext('2d');
-                this.alasqlLoaded = false;
-                this.alasqlLoading = false;
-            }
+        let alasql = null;
+        let loading = false;
 
-            init() {
-                // Setup canvas
-                this.resizeCanvas();
-                window.addEventListener('resize', () => this.resizeCanvas());
+        const runBtn = document.getElementById('run');
+        const clearBtn = document.getElementById('clear');
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
 
-                // Setup handlers
-                const executeBtn = document.getElementById('execute-btn');
-                executeBtn.addEventListener('click', () => this.executeSQL());
-                document.getElementById('clear-btn').addEventListener('click', () => this.clear());
+        runBtn.addEventListener('click', async () => {
+            const sql = document.getElementById('sql').value.trim();
+            if (!sql) return;
 
-                // Draw placeholder
-                this.drawPlaceholder();
-            }
+            if (!alasql) {
+                if (loading) return;
+                loading = true;
+                runBtn.disabled = true;
+                runBtn.textContent = 'Loading engine...';
+                status.textContent = 'Loading SQL engine (first time only)...';
 
-            resizeCanvas() {
-                const container = document.getElementById('canvas-container');
-                this.canvas.width = container.clientWidth - 40;
-                this.canvas.height = container.clientHeight - 40;
-                this.drawPlaceholder();
-            }
-
-            drawPlaceholder() {
-                this.ctx.fillStyle = '#0f3460';
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-                this.ctx.fillStyle = '#4e9af1';
-                this.ctx.font = '16px sans-serif';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText('B-Tree Visualization', this.canvas.width / 2, this.canvas.height / 2 - 10);
-                this.ctx.fillStyle = '#8892b0';
-                this.ctx.font = '14px sans-serif';
-                this.ctx.fillText('Execute SQL to see results', this.canvas.width / 2, this.canvas.height / 2 + 15);
-            }
-
-            async loadAlasql() {
-                if (this.alasqlLoaded) return true;
-                if (this.alasqlLoading) {
-                    // Wait for existing load
-                    while (this.alasqlLoading) {
-                        await new Promise(r => setTimeout(r, 50));
-                    }
-                    return this.alasqlLoaded;
-                }
-
-                this.alasqlLoading = true;
-                const executeBtn = document.getElementById('execute-btn');
-                const prevText = executeBtn.textContent;
-                executeBtn.disabled = true;
-                executeBtn.textContent = 'Loading SQL Engine...';
-
-                return new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/alasql@4.17.0/dist/alasql.min.js';
-                    script.onload = () => {
-                        this.alasqlLoaded = true;
-                        this.alasqlLoading = false;
-                        executeBtn.disabled = false;
-                        executeBtn.textContent = prevText;
-                        this.updateStatus('Ready - SQL Engine Loaded');
-                        resolve(true);
-                    };
-                    script.onerror = () => {
-                        this.alasqlLoading = false;
-                        executeBtn.disabled = false;
-                        executeBtn.textContent = prevText;
-                        this.updateStatus('Error loading SQL engine');
-                        reject(new Error('Failed to load alasql'));
-                    };
-                    document.head.appendChild(script);
-                });
-            }
-
-            async executeSQL() {
-                const sql = document.getElementById('sql-input').value.trim();
-                if (!sql) return;
-
-                // Load alasql on first use (lazy load!)
-                if (!this.alasqlLoaded) {
-                    this.updateStatus('Loading SQL engine...');
-                    await this.loadAlasql();
-                }
-
-                const start = performance.now();
                 try {
-                    const results = alasql(sql);
-                    const time = (performance.now() - start).toFixed(2);
-                    this.displayResults(results, time);
-                    this.drawResults(results);
-                    this.updateStatus(`Done in ${time}ms`);
-                } catch (error) {
-                    this.updateStatus('Error: ' + error.message);
-                    console.error(error);
-                }
-            }
-
-            displayResults(results, time) {
-                const output = document.getElementById('output');
-                if (!results || results.length === 0) {
-                    output.innerHTML = '<p class="placeholder">No results</p>';
+                    await loadAlasql();
+                } catch (e) {
+                    output.innerHTML = `<div style="color:#f85149">Error: ${e.message}</div>`;
                     return;
                 }
-
-                let html = `<p style="color: #4e9af1;">${results.length} results (${time}ms)</p>`;
-                if (results[0] && typeof results[0] === 'object') {
-                    html += '<table><tr>';
-                    const headers = Object.keys(results[0]);
-                    headers.forEach(h => html += `<th>${h}</th>`);
-                    html += '</tr>';
-                    results.forEach(row => {
-                        html += '<tr>';
-                        headers.forEach(h => html += `<td>${row[h] === null ? 'NULL' : row[h]}</td>`);
-                        html += '</tr>';
-                    });
-                    html += '</table>';
-                }
-                output.innerHTML = html;
             }
 
-            drawResults(results) {
-                this.ctx.fillStyle = '#0f3460';
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-                if (results && results.length > 0) {
-                    this.ctx.fillStyle = '#4e9af1';
-                    this.ctx.font = '14px sans-serif';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.fillText(`Results: ${results.length} rows`, this.canvas.width / 2, 30);
-
-                    const nodeCount = Math.min(results.length, 5);
-                    const nodeWidth = 60;
-                    const nodeHeight = 40;
-                    const spacing = 20;
-                    const startX = (this.canvas.width - (nodeCount * (nodeWidth + spacing))) / 2;
-
-                    for (let i = 0; i < nodeCount; i++) {
-                        const x = startX + i * (nodeWidth + spacing);
-                        const y = 80;
-
-                        this.ctx.fillStyle = '#16213e';
-                        this.ctx.fillRect(x, y, nodeWidth, nodeHeight);
-                        this.ctx.strokeStyle = '#4e9af1';
-                        this.ctx.strokeRect(x, y, nodeWidth, nodeHeight);
-
-                        this.ctx.fillStyle = '#eee';
-                        this.ctx.font = '12px monospace';
-                        this.ctx.fillText(`Row ${i + 1}`, x + nodeWidth / 2, y + nodeHeight / 2 + 4);
-
-                        if (i > 0) {
-                            this.ctx.strokeStyle = '#4e9af1';
-                            this.ctx.beginPath();
-                            this.ctx.moveTo(startX + (i - 1) * (nodeWidth + spacing) + nodeWidth / 2, y + nodeHeight);
-                            this.ctx.lineTo(x + nodeWidth / 2, y);
-                            this.ctx.stroke();
-                        }
-                    }
-
-                    if (results.length > 5) {
-                        this.ctx.fillStyle = '#8892b0';
-                        this.ctx.font = '12px sans-serif';
-                        this.ctx.fillText(`... and ${results.length - 5} more`, this.canvas.width / 2, 160);
-                    }
-                }
+            const start = performance.now();
+            try {
+                const results = alasql(sql);
+                const time = (performance.now() - start).toFixed(2);
+                showResults(results, time);
+                status.textContent = `Done in ${time}ms`;
+            } catch (e) {
+                output.innerHTML = `<div style="color:#f85149">Error: ${e.message}</div>`;
+                status.textContent = 'Error';
             }
+        });
 
-            clear() {
-                document.getElementById('sql-input').value = '';
-                document.getElementById('output').innerHTML = '<p class="placeholder">Results will appear here...</p>';
-                this.drawPlaceholder();
-                this.updateStatus('Ready');
-            }
+        clearBtn.addEventListener('click', () => {
+            output.innerHTML = '<div class="placeholder">Results appear here</div>';
+            status.textContent = 'Ready';
+        });
 
-            updateStatus(message) {
-                document.getElementById('status').textContent = message;
-            }
+        async function loadAlasql() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/alasql@4.17.0/dist/alasql.min.js';
+                script.onload = () => {
+                    alasql = window.alasql;
+                    loading = false;
+                    runBtn.disabled = false;
+                    runBtn.textContent = 'Run SQL';
+                    resolve();
+                };
+                script.onerror = () => {
+                    loading = false;
+                    runBtn.disabled = false;
+                    runBtn.textContent = 'Run SQL';
+                    reject(new Error('Failed to load engine'));
+                };
+                document.head.appendChild(script);
+            });
         }
 
-        // Initialize INSTANTLY
-        document.addEventListener('DOMContentLoaded', () => {
-            const app = new InstantSQLiteApp();
-            app.init();
-        });
+        function showResults(results, time) {
+            if (!results || results.length === 0) {
+                output.innerHTML = `<div class="timing">${time}ms · No results</div>`;
+                return;
+            }
+
+            if (typeof results === 'number') {
+                output.innerHTML = `<div class="timing">${time}ms · Affected rows: ${results}</div>`;
+                return;
+            }
+
+            if (!Array.isArray(results)) {
+                output.innerHTML = `<div class="timing">${time}ms · ${JSON.stringify(results)}</div>`;
+                return;
+            }
+
+            const first = results[0];
+            if (typeof first !== 'object' || first === null) {
+                output.innerHTML = `<div class="timing">${time}ms · ${results.length} rows</div><pre>${JSON.stringify(results, null, 2)}</pre>`;
+                return;
+            }
+
+            const cols = Object.keys(first);
+            let html = `<div class="timing">${time}ms · ${results.length} rows</div><table><thead><tr>`;
+            cols.forEach(c => html += `<th>${c}</th>`);
+            html += '</tr></thead><tbody>';
+            results.forEach(row => {
+                html += '<tr>';
+                cols.forEach(c => html += `<td>${row[c] === null ? '<span style="color:#8b949e">NULL</span>' : row[c]}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            output.innerHTML = html;
+        }
     </script>
 </body>
 </html>
