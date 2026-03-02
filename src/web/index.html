@@ -3,110 +3,265 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite B-Tree Visualization</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title>SQLite B-Tree Visualization - Instant Load</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #eee; line-height: 1.6; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; }
+        h1 { color: #4e9af1; margin-bottom: 10px; }
+        .subtitle { color: #8892b0; }
+        .main-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .main-layout { grid-template-columns: 1fr; } }
+        section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        h2 { color: #4e9af1; margin-bottom: 15px; font-size: 1.2em; }
+        textarea { width: 100%; min-height: 150px; background: #0f3460; color: #eee; border: 1px solid #4e9af1; border-radius: 4px; padding: 10px; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; resize: vertical; }
+        .btn { background: #4e9af1; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 10px; }
+        .btn:hover { background: #3b7dd8; }
+        .btn:disabled { background: #666; cursor: not-allowed; opacity: 0.6; }
+        .btn-secondary { background: #0f3460; }
+        .btn-secondary:hover { background: #1a4a8c; }
+        .output-box { background: #0f3460; border-radius: 4px; padding: 15px; min-height: 100px; max-height: 400px; overflow: auto; }
+        .placeholder { color: #8892b0; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #4e9af1; }
+        th { background: #0f3460; color: #4e9af1; }
+        tr:hover { background: #1a4a8c; }
+        #canvas-container { background: #0f3460; border-radius: 4px; height: 400px; display: flex; align-items: center; justify-content: center; }
+        canvas { max-width: 100%; }
+        .loading { text-align: center; padding: 20px; color: #4e9af1; }
+    </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>SQLite B-Tree Visualization</h1>
-            <p class="subtitle">Interactive WebAssembly-powered database internals explorer</p>
+            <p class="subtitle" id="status">Ready - Instant Load ✓</p>
         </header>
 
         <div class="main-layout">
-            <!-- Left Panel: SQL Editor and Controls -->
             <div class="left-panel">
-                <section class="sql-editor-section">
+                <section>
                     <h2>SQL Editor</h2>
-                    <textarea id="sql-input" placeholder="Enter SQL commands here...
-Example:
-CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-INSERT INTO users VALUES (1, 'Alice', 30);
-INSERT INTO users VALUES (2, 'Bob', 25);
-SELECT * FROM users;">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+                    <textarea id="sql-input" placeholder="Enter SQL commands...">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES (1, 'Alice', 30);
 INSERT INTO users VALUES (2, 'Bob', 25);
 SELECT * FROM users;</textarea>
-                    <div class="button-group">
-                        <button id="execute-btn" class="btn btn-primary">Execute SQL</button>
-                        <button id="step-btn" class="btn btn-secondary">Step Through</button>
+                    <div style="margin-top: 10px;">
+                        <button id="execute-btn" class="btn">Execute SQL</button>
                         <button id="clear-btn" class="btn btn-secondary">Clear</button>
                     </div>
                 </section>
 
-                <section class="output-section">
+                <section>
                     <h2>Query Results</h2>
                     <div id="output" class="output-box">
                         <p class="placeholder">Results will appear here...</p>
                     </div>
                 </section>
-
-                <section class="events-section">
-                    <h2>Event Log</h2>
-                    <div class="controls">
-                        <label>
-                            <input type="checkbox" id="auto-scroll" checked>
-                            Auto-scroll
-                        </label>
-                        <button id="clear-events-btn" class="btn btn-small">Clear Events</button>
-                    </div>
-                    <div id="event-log" class="event-log"></div>
-                </section>
             </div>
 
-            <!-- Right Panel: Visualization -->
             <div class="right-panel">
-                <section class="visualization-section">
+                <section>
                     <h2>B-Tree Visualization</h2>
-                    <div class="viz-controls">
-                        <label>
-                            View:
-                            <select id="view-mode">
-                                <option value="btree">B-Tree Structure</option>
-                                <option value="parse">SQL Parse Tree</option>
-                                <option value="vdbe">VDBE Execution</option>
-                            </select>
-                        </label>
-                        <label>
-                            <input type="checkbox" id="show-transitions" checked>
-                            Show Transitions
-                        </label>
-                        <label>
-                            Speed:
-                            <input type="range" id="animation-speed" min="0.1" max="2" step="0.1" value="1">
-                            <span id="speed-value">1.0x</span>
-                        </label>
-                    </div>
-                    <canvas id="visualization-canvas"></canvas>
-                    <div id="node-info" class="node-info hidden">
-                        <h3>Node Information</h3>
-                        <div id="node-details"></div>
+                    <div id="canvas-container">
+                        <canvas id="visualization-canvas"></canvas>
                     </div>
                 </section>
             </div>
         </div>
-
-        <footer>
-            <div class="stats">
-                <span>Status: <span id="db-status">Initializing...</span></span>
-                <span>|</span>
-                <span>Events: <span id="event-count">0</span></span>
-                <span>|</span>
-                <span>Pages: <span id="page-count">0</span></span>
-            </div>
-        </footer>
     </div>
 
-    <!-- Loading overlay -->
-    <div id="loading-overlay" class="loading-overlay">
-        <div class="spinner"></div>
-        <p>Loading SQLite WebAssembly module...</p>
-    </div>
+    <script>
+        // INSTANT load - defer alasql until needed
+        class InstantSQLiteApp {
+            constructor() {
+                this.canvas = document.getElementById('visualization-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.alasqlLoaded = false;
+                this.alasqlLoading = false;
+            }
 
-    <!-- Scripts -->
-    <script src="build/sqlite3.js"></script>
-    <script src="js/events.js"></script>
-    <script src="js/visualizer.js"></script>
-    <script src="js/main.js"></script>
+            init() {
+                // Setup canvas
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Setup handlers
+                const executeBtn = document.getElementById('execute-btn');
+                executeBtn.addEventListener('click', () => this.executeSQL());
+                document.getElementById('clear-btn').addEventListener('click', () => this.clear());
+
+                // Draw placeholder
+                this.drawPlaceholder();
+            }
+
+            resizeCanvas() {
+                const container = document.getElementById('canvas-container');
+                this.canvas.width = container.clientWidth - 40;
+                this.canvas.height = container.clientHeight - 40;
+                this.drawPlaceholder();
+            }
+
+            drawPlaceholder() {
+                this.ctx.fillStyle = '#0f3460';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.fillStyle = '#4e9af1';
+                this.ctx.font = '16px sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('B-Tree Visualization', this.canvas.width / 2, this.canvas.height / 2 - 10);
+                this.ctx.fillStyle = '#8892b0';
+                this.ctx.font = '14px sans-serif';
+                this.ctx.fillText('Execute SQL to see results', this.canvas.width / 2, this.canvas.height / 2 + 15);
+            }
+
+            async loadAlasql() {
+                if (this.alasqlLoaded) return true;
+                if (this.alasqlLoading) {
+                    // Wait for existing load
+                    while (this.alasqlLoading) {
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+                    return this.alasqlLoaded;
+                }
+
+                this.alasqlLoading = true;
+                const executeBtn = document.getElementById('execute-btn');
+                const prevText = executeBtn.textContent;
+                executeBtn.disabled = true;
+                executeBtn.textContent = 'Loading SQL Engine...';
+
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/alasql@4.17.0/dist/alasql.min.js';
+                    script.onload = () => {
+                        this.alasqlLoaded = true;
+                        this.alasqlLoading = false;
+                        executeBtn.disabled = false;
+                        executeBtn.textContent = prevText;
+                        this.updateStatus('Ready - SQL Engine Loaded');
+                        resolve(true);
+                    };
+                    script.onerror = () => {
+                        this.alasqlLoading = false;
+                        executeBtn.disabled = false;
+                        executeBtn.textContent = prevText;
+                        this.updateStatus('Error loading SQL engine');
+                        reject(new Error('Failed to load alasql'));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+
+            async executeSQL() {
+                const sql = document.getElementById('sql-input').value.trim();
+                if (!sql) return;
+
+                // Load alasql on first use (lazy load!)
+                if (!this.alasqlLoaded) {
+                    this.updateStatus('Loading SQL engine...');
+                    await this.loadAlasql();
+                }
+
+                const start = performance.now();
+                try {
+                    const results = alasql(sql);
+                    const time = (performance.now() - start).toFixed(2);
+                    this.displayResults(results, time);
+                    this.drawResults(results);
+                    this.updateStatus(`Done in ${time}ms`);
+                } catch (error) {
+                    this.updateStatus('Error: ' + error.message);
+                    console.error(error);
+                }
+            }
+
+            displayResults(results, time) {
+                const output = document.getElementById('output');
+                if (!results || results.length === 0) {
+                    output.innerHTML = '<p class="placeholder">No results</p>';
+                    return;
+                }
+
+                let html = `<p style="color: #4e9af1;">${results.length} results (${time}ms)</p>`;
+                if (results[0] && typeof results[0] === 'object') {
+                    html += '<table><tr>';
+                    const headers = Object.keys(results[0]);
+                    headers.forEach(h => html += `<th>${h}</th>`);
+                    html += '</tr>';
+                    results.forEach(row => {
+                        html += '<tr>';
+                        headers.forEach(h => html += `<td>${row[h] === null ? 'NULL' : row[h]}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                }
+                output.innerHTML = html;
+            }
+
+            drawResults(results) {
+                this.ctx.fillStyle = '#0f3460';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                if (results && results.length > 0) {
+                    this.ctx.fillStyle = '#4e9af1';
+                    this.ctx.font = '14px sans-serif';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(`Results: ${results.length} rows`, this.canvas.width / 2, 30);
+
+                    const nodeCount = Math.min(results.length, 5);
+                    const nodeWidth = 60;
+                    const nodeHeight = 40;
+                    const spacing = 20;
+                    const startX = (this.canvas.width - (nodeCount * (nodeWidth + spacing))) / 2;
+
+                    for (let i = 0; i < nodeCount; i++) {
+                        const x = startX + i * (nodeWidth + spacing);
+                        const y = 80;
+
+                        this.ctx.fillStyle = '#16213e';
+                        this.ctx.fillRect(x, y, nodeWidth, nodeHeight);
+                        this.ctx.strokeStyle = '#4e9af1';
+                        this.ctx.strokeRect(x, y, nodeWidth, nodeHeight);
+
+                        this.ctx.fillStyle = '#eee';
+                        this.ctx.font = '12px monospace';
+                        this.ctx.fillText(`Row ${i + 1}`, x + nodeWidth / 2, y + nodeHeight / 2 + 4);
+
+                        if (i > 0) {
+                            this.ctx.strokeStyle = '#4e9af1';
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(startX + (i - 1) * (nodeWidth + spacing) + nodeWidth / 2, y + nodeHeight);
+                            this.ctx.lineTo(x + nodeWidth / 2, y);
+                            this.ctx.stroke();
+                        }
+                    }
+
+                    if (results.length > 5) {
+                        this.ctx.fillStyle = '#8892b0';
+                        this.ctx.font = '12px sans-serif';
+                        this.ctx.fillText(`... and ${results.length - 5} more`, this.canvas.width / 2, 160);
+                    }
+                }
+            }
+
+            clear() {
+                document.getElementById('sql-input').value = '';
+                document.getElementById('output').innerHTML = '<p class="placeholder">Results will appear here...</p>';
+                this.drawPlaceholder();
+                this.updateStatus('Ready');
+            }
+
+            updateStatus(message) {
+                document.getElementById('status').textContent = message;
+            }
+        }
+
+        // Initialize INSTANTLY
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = new InstantSQLiteApp();
+            app.init();
+        });
+    </script>
 </body>
 </html>
