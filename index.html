@@ -1,20 +1,47 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Test Current State</title>
+    <meta http-equiv="refresh" content="0;url=src/web/index.html">
+    <title>Redirecting...</title>
+    <style>
+        body {
+            font-family: -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            padding: 20px;
+        }
+        h1 { color: #38bdf8; margin-bottom: 10px; }
+        p { color: #94a3b8; }
+        .spinner {
+            border: 3px solid #3b82f6;
+            border-top: 3px solid transparent;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body>
-<h1>Current State Test</h1>
-<p>Opening: src/web/index.html</p>
-<ul>
-<li><a href="src/web/index.html" target="_blank">Open src/web/index.html</a></li>
-<li><a href="index.html" target="_blank">Open root index.html</a></li>
-</ul>
-<p>Current files:</p>
-<pre>
-index.html 3.6K
-src/web/index.html 4.5K
-</pre><p>
-Mon Mar  2 23:50:39 UTC 2026
-</p></body></html>
+    <div class="container">
+        <h1>SQLite B-Tree Visualization</h1>
+        <p>Redirecting to application...</p>
+        <div class="spinner"></div>
+        <p><a href="src/web/index.html" style="color: #38bdf8;">Click here if not redirected</a></p>
+    </div>
+</body>
+</html>
