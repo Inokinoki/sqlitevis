@@ -41,14 +41,10 @@ SELECT * FROM users;</textarea>
 
                 <section class="events-section">
                     <h2>Event Log</h2>
-                    <div class="controls">
-                        <label>
-                            <input type="checkbox" id="auto-scroll" checked>
-                            Auto-scroll
-                        </label>
-                        <button id="clear-events-btn" class="btn btn-small">Clear Events</button>
+                    <div id="events-section">
+                        <div id="event-log" class="event-log"></div>
+                        <div id="event-count" style="font-size:11px;margin-top:5px;color:#64748b;">Events: 0</div>
                     </div>
-                    <div id="event-log" class="event-log"></div>
                 </section>
             </div>
 
