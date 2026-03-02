@@ -71,10 +71,10 @@ SELECT * FROM users;</textarea>
     <!-- Load WASM asynchronously -->
     <script async src="src/web/build/sqlite3.js"></script>
 
-    <!-- Load optimized JS after DOM -->
-    <script defer src="src/web/js/events-turbo.js"></script>
-    <script defer src="src/web/js/visualizer-fast.js"></script>
-    <script defer src="src/web/js/main-turbo.js"></script>
+    <!-- Use original full-featured JS (class names must match) -->
+    <script defer src="src/web/js/events.js"></script>
+    <script defer src="src/web/js/visualizer.js"></script>
+    <script defer src="src/web/js/main.js"></script>
 
     <!-- Initialize immediately -->
     <script>
