@@ -171,14 +171,14 @@ SELECT * FROM users;</textarea>
         function displayResults(result, time) {
             const out = document.getElementById('output');
             if (!result || result.length === 0) {
-                out.innerHTML = `<p class="placeholder">No results (${time}ms)</p>`;
+                out.innerHTML = `<p>✅ SQL executed successfully</p>`;
                 return;
             }
             if (result.affected !== undefined) {
-                out.innerHTML = `<p class="placeholder">Affected rows: ${result.affected} (${time}ms)</p>`;
+                out.innerHTML = `<p>✅ SQL executed successfully</p>`;
                 return;
             }
-            let html = `<p>${result.length} rows (${time}ms)</p><table><tr>`;
+            let html = `<p>${result.length} rows</p><table><tr>`;
             result[0].forEach((_, i) => html += `<th>Column ${i + 1}</th>`);
             html += '</tr>';
             result.forEach(row => {
