@@ -97,19 +97,13 @@
 </head>
 <body>
     <div id="sidebar">
-        <div style="padding:8px;background:#0f172a;border-radius:4px;margin-bottom:8px;border:1px solid #334155;">
-            <strong style="color:#38bdf8;font-size:11px;">📝 Quick Start:</strong>
-            <p style="color:#94a3b8;font-size:10px;margin:4px 0;">1. Edit SQL below</p>
-            <p style="color:#94a3b8;font-size:10px;margin:4px 0;">2. Click "Run" or press Ctrl+Enter</p>
-            <p style="color:#94a3b8;font-size:10px;margin:4px 0;">3. See results & visualization</p>
-        </div>
         <textarea id="sql-input" placeholder="Enter SQL...">CREATE TABLE users(id, name, age);
 INSERT INTO users VALUES(1, 'Alice', 30);
 INSERT INTO users VALUES(2, 'Bob', 25);
 INSERT INTO users VALUES(3, 'Carol', 35);
 SELECT * FROM users;</textarea>
         <div>
-            <button id="exec-btn">▶ Run (Ctrl+Enter)</button>
+            <button id="exec-btn">▶ Run</button>
             <button id="clear-btn">Clear</button>
         </div>
         <div id="output"></div>
@@ -117,11 +111,9 @@ SELECT * FROM users;</textarea>
 
     <div id="main">
         <div id="toolbar">
-            <span id="db-status">✅ Ready (<1ms load)</span>
-            <span style="flex:1"></span>
-            <span style="color:#64748b;font-size:10px;margin-right:8px;">View:</span>
-            <button class="view-btn active" data-view="btree" title="See B-Tree node visualization">🌳 B-Tree</button>
-            <button class="view-btn" data-view="table" title="See table results">📊 Table</button>
+            <span id="db-status">Ready</span>
+            <button class="view-btn active" data-view="btree">B-Tree</button>
+            <button class="view-btn" data-view="table">Table</button>
         </div>
         <div id="canvas-container">
             <canvas id="canvas"></canvas>
