@@ -1,0 +1,50 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - textbox "Enter SQL..." [ref=e4]: SELECT * FROM test;
+      - generic [ref=e5]:
+        - button "▶ Execute" [active] [ref=e6] [cursor=pointer]
+        - button "Clear" [ref=e7] [cursor=pointer]
+      - generic [ref=e8]:
+        - generic [ref=e9]: ✓ 2 rows (1.00ms)
+        - table [ref=e10]:
+          - rowgroup [ref=e11]:
+            - row "id INTEGER PRIMARY KEY value TEXT" [ref=e12]:
+              - columnheader "id INTEGER PRIMARY KEY" [ref=e13]
+              - columnheader "value TEXT" [ref=e14]
+            - row "1 first" [ref=e15]:
+              - cell "1" [ref=e16]
+              - cell "first" [ref=e17]
+            - row "2 second" [ref=e18]:
+              - cell "2" [ref=e19]
+              - cell "second" [ref=e20]
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - generic [ref=e23]: Events
+        - generic [ref=e24]: "20"
+      - generic [ref=e25]:
+        - generic [ref=e26]: "2:35:53 PMTOKEN{\"token\":\"INTEGER\",\"type\":\"key"
+        - generic [ref=e27]: "2:35:53 PMTOKEN{\"token\":\"PRIMARY\",\"type\":\"key"
+        - generic [ref=e28]: "2:35:53 PMTOKEN{\"token\":\"KEY\",\"type\":\"keyword"
+        - generic [ref=e29]: "2:35:53 PMTOKEN{\"token\":\"value\",\"type\":\"keywo"
+        - generic [ref=e30]: "2:35:53 PMTOKEN{\"token\":\"TEXT\",\"type\":\"keywor"
+        - generic [ref=e31]: "2:35:53 PMPAGE{\"page\":1}"
+        - generic [ref=e32]: "2:35:53 PMDONE{\"success\":true}"
+        - generic [ref=e33]: "2:35:54 PMPARSE{\"sql\":\"INSERT INTO test VALUE"
+        - generic [ref=e34]: "2:35:54 PMTOKEN{\"token\":\"INSERT\",\"type\":\"keyw"
+        - generic [ref=e35]: "2:35:54 PMTOKEN{\"token\":\"INTO\",\"type\":\"keywor"
+        - generic [ref=e36]: "2:35:54 PMTOKEN{\"token\":\"test\",\"type\":\"keywor"
+        - generic [ref=e37]: "2:35:54 PMTOKEN{\"token\":\"VALUES\",\"type\":\"keyw"
+        - generic [ref=e38]: "2:35:54 PMTOKEN{\"token\":\"1\",\"type\":\"keyword\","
+        - generic [ref=e39]: "2:35:54 PMTOKEN{\"token\":\"'first'\",\"type\":\"key"
+        - generic [ref=e40]: "2:35:54 PMINSERT{\"page\":1,\"key\":1}"
+  - generic [ref=e42]:
+    - generic [ref=e43]: Done (1.00ms)
+    - generic [ref=e44]:
+      - button "B-Tree" [ref=e45] [cursor=pointer]
+      - button "Parse" [ref=e46] [cursor=pointer]
+      - button "VDBE" [ref=e47] [cursor=pointer]
+```

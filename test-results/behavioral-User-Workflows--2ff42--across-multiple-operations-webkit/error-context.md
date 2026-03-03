@@ -1,0 +1,47 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - textbox "Enter SQL..." [ref=e4]: SELECT * FROM state_test;
+      - generic [ref=e5]:
+        - button "▶ Execute" [active] [ref=e6] [cursor=pointer]
+        - button "Clear" [ref=e7] [cursor=pointer]
+      - generic [ref=e8]:
+        - generic [ref=e9]: ✓ 1 rows (1.00ms)
+        - table [ref=e10]:
+          - rowgroup [ref=e11]:
+            - row "id INTEGER PRIMARY KEY value TEXT" [ref=e12]:
+              - columnheader "id INTEGER PRIMARY KEY" [ref=e13]
+              - columnheader "value TEXT" [ref=e14]
+            - row "1 persistent" [ref=e15]:
+              - cell "1" [ref=e16]
+              - cell "persistent" [ref=e17]
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: Events
+        - generic [ref=e21]: "20"
+      - generic [ref=e22]:
+        - generic [ref=e23]: "2:37:51 PMTOKEN{\"token\":\"INTEGER\",\"type\":\"key"
+        - generic [ref=e24]: "2:37:51 PMTOKEN{\"token\":\"PRIMARY\",\"type\":\"key"
+        - generic [ref=e25]: "2:37:51 PMTOKEN{\"token\":\"KEY\",\"type\":\"keyword"
+        - generic [ref=e26]: "2:37:51 PMTOKEN{\"token\":\"value\",\"type\":\"keywo"
+        - generic [ref=e27]: "2:37:51 PMTOKEN{\"token\":\"TEXT\",\"type\":\"keywor"
+        - generic [ref=e28]: "2:37:51 PMPAGE{\"page\":1}"
+        - generic [ref=e29]: "2:37:51 PMDONE{\"success\":true}"
+        - generic [ref=e30]: "2:37:52 PMPARSE{\"sql\":\"INSERT INTO state_test"
+        - generic [ref=e31]: "2:37:52 PMTOKEN{\"token\":\"INSERT\",\"type\":\"keyw"
+        - generic [ref=e32]: "2:37:52 PMTOKEN{\"token\":\"INTO\",\"type\":\"keywor"
+        - generic [ref=e33]: "2:37:52 PMTOKEN{\"token\":\"state_test\",\"type\":\""
+        - generic [ref=e34]: "2:37:52 PMTOKEN{\"token\":\"VALUES\",\"type\":\"keyw"
+        - generic [ref=e35]: "2:37:52 PMTOKEN{\"token\":\"1\",\"type\":\"keyword\","
+        - generic [ref=e36]: "2:37:52 PMTOKEN{\"token\":\"'persistent'\",\"type\""
+        - generic [ref=e37]: "2:37:52 PMINSERT{\"page\":1,\"key\":1}"
+  - generic [ref=e39]:
+    - generic [ref=e40]: Done (1.00ms)
+    - generic [ref=e41]:
+      - button "B-Tree" [ref=e42] [cursor=pointer]
+      - button "Parse" [ref=e43] [cursor=pointer]
+      - button "VDBE" [ref=e44] [cursor=pointer]
+```
