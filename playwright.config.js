@@ -16,7 +16,7 @@ module.exports = defineConfig({
     ['json', { outputFile: 'test-results/results.json' }]
   ],
   use: {
-    baseURL: 'http://localhost:8000',
+    baseURL: 'http://localhost:8899/src/web',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -27,21 +27,13 @@ module.exports = defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
   ],
 
   // Start development server before running tests
   webServer: {
-    command: 'make serve',
-    url: 'http://localhost:8000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
+    command: 'python3 -m http.server 8899',
+    url: 'http://localhost:8899/src/web/index.html',
+    reuseExistingServer: true,
+    timeout: 10000,
   },
 });

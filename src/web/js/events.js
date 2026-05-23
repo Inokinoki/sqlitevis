@@ -39,7 +39,7 @@ class EventManager {
         // Event categories
         this.eventCategories = {
             0: 'btree', 1: 'btree', 2: 'btree', 3: 'btree', 4: 'btree', 5: 'btree',
-            6: 'btree', 7: 'btree', 8: 'parse', 9: 'parse', 10: 'parse',
+            6: 'page', 7: 'page', 8: 'parse', 9: 'parse', 10: 'parse',
             11: 'vdbe', 12: 'vdbe', 13: 'vdbe'
         };
 
@@ -54,26 +54,21 @@ class EventManager {
     }
 
     /**
-     * Handle an event from the WASM module (with AGGRESSIVE throttling for performance)
+     * Handle an event from the WASM module.
+     * Pre-built WASM sends parse events with wrong event type codes:
+     *   parse_start   → type 11 (VDBE_START)  with {parseType:"start"}
+     *   parse_token   → type 13 (VDBE_COMPLETE) with {parseType:"token"}
+     *   parse_complete → type 6  (PAGE_ALLOCATE) with {parseType:"complete"}
+     * We detect parseType and re-route to the correct logical type.
      */
     handleEvent(eventType, dataJson) {
-        // Ultra Fast path: Skip most VDBE opcode events entirely
-        // Only log every 10th opcode to reduce UI spam
+        // Always count events and throttle DOM logging for VDBE opcodes
+        let skipDomLog = false;
         if (eventType === 12) { // VDBE_OPCODE
             this._vdbeOpcodeCount = (this._vdbeOpcodeCount || 0) + 1;
             if (this._vdbeOpcodeCount % 10 !== 0) {
-                // Skip 9 out of 10 opcode events for performance
-                this.eventCount++;
-                return;
+                skipDomLog = true;
             }
-        }
-
-        // Fast path: Don't parse JSON for events we don't care about
-        if (eventType !== 8 && eventType !== 9 && eventType !== 10 &&
-            eventType !== 11 && eventType !== 12 && eventType !== 13) {
-            // For non-critical events, just increment counter and skip heavy processing
-            this.eventCount++;
-            return;
         }
 
         try {
@@ -82,51 +77,32 @@ class EventManager {
             try {
                 data = JSON.parse(dataJson);
             } catch (parseError) {
-                console.error('Failed to parse event data:', parseError, 'Raw data:', dataJson);
-                // Create minimal event with raw data
                 data = { _raw: dataJson, _parseError: true };
             }
 
-            // Check for magic number workarounds for parse events
-            let actualEventType = eventType;
-            let actualTypeName = this.eventTypeNames[eventType] || 'UNKNOWN';
-            let actualCategory = this.eventCategories[eventType] || 'other';
-
-            // Detect parse event magic numbers
-            if (eventType === 11 && data.numOpcodes === 100) {
-                // PARSE_START marker
-                actualEventType = 8;
-                actualTypeName = 'PARSE_START';
-                actualCategory = 'parse';
-                data.sql = 'SQL Query';
-            }
-
-            // Detect parse_start_event wrapped in VDBE_START
-            if (eventType === 11 && data.parseType === 'start') {
-                actualEventType = 8;
-                actualTypeName = 'PARSE_START';
-                actualCategory = 'parse';
-                data.sql = data.sql || 'SQL Query';
-            }
-
-            // Detect parse_complete_event wrapped in PAGE_ALLOCATE
-            if (eventType === 6 && data.parseType === 'complete') {
-                actualEventType = 10;
-                actualTypeName = 'PARSE_COMPLETE';
-                actualCategory = 'parse';
+            // Fix event routing for pre-built WASM with broken C bridge
+            let effectiveType = eventType;
+            if (data.parseType === 'start') {
+                effectiveType = 8;  // PARSE_START
+            } else if (data.parseType === 'token') {
+                effectiveType = 9;  // PARSE_TOKEN
+            } else if (data.parseType === 'complete') {
+                effectiveType = 10; // PARSE_COMPLETE
             }
 
             const event = {
                 id: this.eventCount++,
-                type: actualEventType,
-                typeName: actualTypeName,
-                category: actualCategory,
+                type: effectiveType,
+                typeName: this.eventTypeNames[effectiveType] || 'UNKNOWN',
+                category: this.eventCategories[effectiveType] || 'other',
                 data: data,
                 timestamp: Date.now()
             };
 
             this.events.push(event);
-            this.logEvent(event);
+            if (!skipDomLog) {
+                this.logEvent(event);
+            }
             this.notifyListeners(event);
 
             // Use requestIdleCallback for non-critical stats updates
@@ -289,17 +265,6 @@ class EventManager {
     formatEventData(event) {
         const data = event.data;
 
-        // Handle parse events wrapped in other event types (workaround)
-        if (data.parseType) {
-            if (data.parseType === 'start') {
-                return `sql="${data.sql}"`;
-            } else if (data.parseType === 'token') {
-                return `token="${data.token}", type=${data.type}`;
-            } else if (data.parseType === 'complete') {
-                return `success=${data.success}`;
-            }
-        }
-
         switch (event.typeName) {
             case 'BTREE_OPEN':
                 return `pageSize=${data.pageSize}, pages=${data.numPages}`;
@@ -314,10 +279,6 @@ class EventManager {
                 return `original=${data.originalPage} → new=${data.newPage}, split at cell ${data.splitCell}`;
 
             case 'PAGE_ALLOCATE':
-                // Check if this is actually a parse complete event (workaround)
-                if (data.parseType === 'complete') {
-                    return `success=${data.success}`;
-                }
                 return `page=${data.page}, type=${data.type}`;
 
             case 'PAGE_FREE':
@@ -333,20 +294,12 @@ class EventManager {
                 return `success=${data.success}`;
 
             case 'VDBE_START':
-                // Check if this is actually a parse start event (workaround)
-                if (data.parseType === 'start') {
-                    return `sql="${data.sql}"`;
-                }
                 return `opcodes=${data.numOpcodes}`;
 
             case 'VDBE_OPCODE':
                 return `[${data.pc}] ${data.opcode} ${data.p1},${data.p2},${data.p3}`;
 
             case 'VDBE_COMPLETE':
-                // Check if this is actually a parse token event (workaround)
-                if (data.parseType === 'token') {
-                    return `token="${data.token}", type=${data.type}`;
-                }
                 return `result=${data.resultCode}`;
 
             default:
@@ -384,13 +337,16 @@ class EventManager {
 
         const logElement = document.getElementById('event-log');
         if (logElement) {
-            // Much faster than innerHTML = ''
             while (logElement.firstChild) {
                 logElement.removeChild(logElement.firstChild);
             }
         }
 
-        this.updateStats();
+        // Update stats synchronously for immediate UI feedback
+        const eventCountElement = document.getElementById('event-count');
+        if (eventCountElement) {
+            eventCountElement.textContent = '0';
+        }
     }
 
     /**

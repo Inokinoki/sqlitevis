@@ -96,22 +96,20 @@ void page_free_event(int page_num) {
         page_num);
 }
 
-// Parse event hooks - MINIMAL IMPLEMENTATION FOR DEBUGGING
+// Parse event hooks
 EMSCRIPTEN_KEEPALIVE
 void parse_start_event(const char* sql) {
-    // Completely bypass any string processing - just emit a constant
-    emit_vis_event(EVENT_VDBE_START, "{\"parseType\":\"start\"}");
+    emit_vis_event(EVENT_PARSE_START, "{\"sql\":\"%.200s\"}", sql);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void parse_token_event(const char* token, int token_type) {
-    // Bypass all parameters - just emit a constant
-    emit_vis_event(EVENT_VDBE_COMPLETE, "{\"parseType\":\"token\"}");
+    emit_vis_event(EVENT_PARSE_TOKEN, "{\"token\":\"%.100s\",\"tokenType\":%d}", token, token_type);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void parse_complete_event(int success) {
-    emit_vis_event(EVENT_PAGE_ALLOCATE, "{\"parseType\":\"complete\"}");
+    emit_vis_event(EVENT_PARSE_COMPLETE, "{\"success\":%d}", success);
 }
 
 // VDBE (Virtual Database Engine) event hooks
@@ -131,11 +129,6 @@ void vdbe_opcode_event(int pc, const char* opcode, int p1, int p2, int p3) {
 
 EMSCRIPTEN_KEEPALIVE
 void vdbe_complete_event(int result_code) {
-    // DEBUG
-    EM_ASM_({
-        console.log("[C] vdbe_complete_event called with result:", $0);
-    }, result_code);
-
     emit_vis_event(EVENT_VDBE_COMPLETE,
         "{\"resultCode\":%d}",
         result_code);

@@ -1,7 +1,9 @@
-# Build outputs
-build/
-*.wasm
+# Build outputs (root only)
+/build/
 *.js.mem
+
+# Pre-built WASM is tracked in src/web/build/
+# Do NOT ignore src/web/build/
 
 # SQLite downloads
 sqlite/original/
@@ -29,3 +31,9 @@ npm-debug.log*
 # Temporary files
 .tmp/
 temp/
+
+# Archive
+_archive/
+
+# Test results
+test-results/

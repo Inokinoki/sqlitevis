@@ -58,7 +58,7 @@ class SQLiteVisApp {
         } catch (error) {
             console.error('Initialization error:', error);
             this.updateStatus('Error: ' + error.message);
-            alert('Failed to initialize SQLite WebAssembly: ' + error.message);
+            this.hideLoading();
         }
     }
 
@@ -68,33 +68,14 @@ class SQLiteVisApp {
     setupLazyVisualizer() {
         // Check if BTreeVisualizer class exists before trying to use it
         if (typeof BTreeVisualizer === 'undefined') {
-            // Visualizer not loaded, skip initialization
             console.log('Visualizer not loaded - skipping visualization setup');
             return;
         }
 
-        // Use IntersectionObserver to lazy load visualizer
-        if ('IntersectionObserver' in window) {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting && !this.visualizer) {
-                        // Initialize visualizer when canvas becomes visible
-                        this.visualizer = new BTreeVisualizer('visualization-canvas');
-                        this.connectEvents();
-                        observer.disconnect();
-                    }
-                });
-            }, { threshold: 0.1 });
-
-            const canvas = document.getElementById('visualization-canvas');
-            if (canvas) {
-                observer.observe(canvas);
-            }
-        } else {
-            // Fallback: initialize immediately
-            this.visualizer = new BTreeVisualizer('visualization-canvas');
-            this.connectEvents();
-        }
+        // Initialize immediately (IntersectionObserver doesn't fire in headless browsers)
+        this.visualizer = new BTreeVisualizer('visualization-canvas');
+        window.viz = this.visualizer;
+        this.connectEvents();
     }
 
     /**
@@ -118,18 +99,9 @@ class SQLiteVisApp {
         const self = this;
 
         try {
-            // Register event handler BEFORE loading the module
-            // This ensures we can capture events during SQLite initialization
-            window.sqliteVisEventHandler = (eventType, eventData) => {
-                // Only handle events if eventManager exists and app is initialized
-                if (typeof eventManager !== 'undefined' && self.isInitialized) {
-                    try {
-                        eventManager.handleEvent(eventType, eventData);
-                    } catch (e) {
-                        console.error('Event handler error:', e);
-                    }
-                }
-            };
+            // window.sqliteVisEventHandler is already registered by events.js
+            // No need to override it here — the global handler from events.js
+            // forwards all events to eventManager.handleEvent() directly.
 
             // Load the module
             this.sqliteModule = await createSQLiteModule();
@@ -306,30 +278,30 @@ class SQLiteVisApp {
             eventManager.autoScroll = e.target.checked;
         });
 
-        // View mode selector - ONLY if visualizer exists
+        // View mode selector
         const viewModeSelect = document.getElementById('view-mode');
-        if (viewModeSelect && this.visualizer) {
+        if (viewModeSelect) {
             viewModeSelect.addEventListener('change', (e) => {
-                this.visualizer.setViewMode(e.target.value);
+                if (this.visualizer) this.visualizer.setViewMode(e.target.value);
             });
         }
 
-        // Show transitions checkbox - ONLY if visualizer exists
+        // Show transitions checkbox
         const showTransitionsCheck = document.getElementById('show-transitions');
-        if (showTransitionsCheck && this.visualizer) {
+        if (showTransitionsCheck) {
             showTransitionsCheck.addEventListener('change', (e) => {
-                this.visualizer.setShowTransitions(e.target.checked);
+                if (this.visualizer) this.visualizer.setShowTransitions(e.target.checked);
             });
         }
 
-        // Animation speed slider - ONLY if visualizer exists
+        // Animation speed slider
         const speedSlider = document.getElementById('animation-speed');
         const speedValue = document.getElementById('speed-value');
 
-        if (speedSlider && this.visualizer) {
+        if (speedSlider) {
             speedSlider.addEventListener('input', (e) => {
                 const speed = parseFloat(e.target.value);
-                this.visualizer.setAnimationSpeed(speed);
+                if (this.visualizer) this.visualizer.setAnimationSpeed(speed);
                 speedValue.textContent = speed.toFixed(1) + 'x';
             });
         }
@@ -338,6 +310,73 @@ class SQLiteVisApp {
         document.getElementById('step-btn').addEventListener('click', () => {
             this.stepThroughSQL();
         });
+
+        // Ctrl+Enter / Cmd+Enter to execute SQL
+        document.getElementById('sql-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                this.executeSQL();
+            }
+        });
+    }
+
+    /**
+     * Step through SQL statements one at a time
+     */
+    stepThroughSQL() {
+        const sql = document.getElementById('sql-input').value.trim();
+        if (!sql) {
+            this.showOutput('Please enter SQL to step through', 'error');
+            return;
+        }
+
+        // Split into statements
+        const statements = [];
+        let current = '';
+        let inString = false;
+        let quote = '';
+        for (const c of sql) {
+            if (!inString && (c === "'" || c === '"')) {
+                inString = true;
+                quote = c;
+                current += c;
+                continue;
+            }
+            if (inString && c === quote) {
+                inString = false;
+                current += c;
+                continue;
+            }
+            if (inString) {
+                current += c;
+                continue;
+            }
+            if (c === ';') {
+                if (current.trim()) statements.push(current.trim());
+                current = '';
+            } else {
+                current += c;
+            }
+        }
+        if (current.trim()) statements.push(current.trim());
+
+        if (statements.length === 0) {
+            this.showOutput('No SQL statements found', 'error');
+            return;
+        }
+
+        // Track current step index
+        if (typeof this._stepIndex === 'undefined') this._stepIndex = 0;
+        if (this._stepIndex >= statements.length) {
+            this._stepIndex = 0;
+            this.showOutput('All statements executed. Starting from beginning.', 'text');
+            eventManager.clear();
+        }
+
+        const stmt = statements[this._stepIndex];
+        this.showOutput(`Step ${this._stepIndex + 1}/${statements.length}: ${stmt}`, 'text');
+        this.executeRealSQL(stmt + ';');
+        this._stepIndex++;
     }
 
     /**
@@ -364,7 +403,7 @@ class SQLiteVisApp {
     }
 
     /**
-     * Execute real SQL with WASM
+     * Execute real SQL with WASM, splitting statements and rendering SELECT results
      */
     executeRealSQL(sql) {
         if (!this.db || !this.sqliteModule) {
@@ -372,52 +411,237 @@ class SQLiteVisApp {
             return;
         }
 
+        const stmts = this._splitStatements(sql);
+        let lastOutput = null;
+
+        for (const stmt of stmts) {
+            if (!stmt.trim()) continue;
+            // Notify visualizer of each statement for parse tree visualization
+            if (this.visualizer) this.visualizer.showParseStart(stmt.trim());
+            lastOutput = this._executeOne(stmt.trim());
+            if (lastOutput && lastOutput.error) {
+                this.showHTMLOutput(`<div style="color:var(--danger-color)">SQL Error: ${this._escapeHtml(lastOutput.error)}</div>`);
+                this.updateStatus('Error');
+                return;
+            }
+        }
+
+        if (lastOutput && lastOutput.table) {
+            this.showHTMLOutput(lastOutput.table);
+        } else if (lastOutput && lastOutput.message) {
+            this.showHTMLOutput(`<div style="color:var(--success-color)">${this._escapeHtml(lastOutput.message)}</div>`);
+        }
+        this.updateStatus('Ready');
+    }
+
+    _splitStatements(sql) {
+        const stmts = [];
+        let cur = '', inStr = false, q = '';
+        for (const c of sql) {
+            if (!inStr && (c === "'" || c === '"')) { inStr = true; q = c; cur += c; continue; }
+            if (inStr && c === q) { inStr = false; cur += c; continue; }
+            if (inStr) { cur += c; continue; }
+            if (c === ';') { stmts.push(cur); cur = ''; }
+            else cur += c;
+        }
+        if (cur.trim()) stmts.push(cur);
+        return stmts;
+    }
+
+    _escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s == null ? 'NULL' : String(s);
+        return d.innerHTML;
+    }
+
+    _executeOne(sql) {
+        const mod = this.sqliteModule;
+        const trimmedSql = sql.trim();
+
         try {
-            // Allocate memory for SQL string
-            const sqlLen = this.sqliteModule.lengthBytesUTF8(sql) + 1;
-            const sqlPtr = this.sqliteModule._malloc(sqlLen);
-            this.sqliteModule.stringToUTF8(sql, sqlPtr, sqlLen);
+            // First execute the SQL (for side effects like CREATE/INSERT/DELETE)
+            const sqlLen = mod.lengthBytesUTF8(trimmedSql) + 1;
+            const sqlPtr = mod._malloc(sqlLen);
+            mod.stringToUTF8(trimmedSql, sqlPtr, sqlLen);
 
-            // Allocate memory for error message pointer
-            const errorPtrPtr = this.sqliteModule._malloc(4);
-            this.sqliteModule.HEAP32[errorPtrPtr >> 2] = 0;
+            const errorPtrPtr = mod._malloc(4);
+            mod.HEAP32[errorPtrPtr >> 2] = 0;
 
-            // Execute SQL
-            const result = this.sqliteModule._sqlite3_exec(
-                this.db,
-                sqlPtr,
-                0, // callback
-                0, // callback arg
-                errorPtrPtr
-            );
+            // Try sqlite3_exec with callback first
+            let resultColumns = null;
+            let resultRows = [];
+            let hasResults = false;
+            let callbackPtr = 0;
 
-            // Free SQL string
-            this.sqliteModule._free(sqlPtr);
-
-            if (result !== 0) {
-                // Read error message pointer
-                const errorMsgPtr = this.sqliteModule.HEAP32[errorPtrPtr >> 2];
-                if (errorMsgPtr) {
-                    const errorMsg = this.sqliteModule.UTF8ToString(errorMsgPtr);
-                    this.showOutput('SQL Error: ' + errorMsg, 'error');
-                } else {
-                    this.showOutput('SQL Error code: ' + result, 'error');
+            try {
+                if (mod.addFunction) {
+                    const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
+                        hasResults = true;
+                        if (!resultColumns) {
+                            resultColumns = [];
+                            for (let i = 0; i < colCount; i++) {
+                                const namePtr = mod.HEAP32[(colNamesPtr >> 2) + i];
+                                resultColumns.push(mod.UTF8ToString(namePtr));
+                            }
+                        }
+                        const row = [];
+                        for (let i = 0; i < colCount; i++) {
+                            const valPtr = mod.HEAP32[(colValuesPtr >> 2) + i];
+                            if (valPtr === 0) {
+                                row.push(null);
+                            } else {
+                                row.push(mod.UTF8ToString(valPtr));
+                            }
+                        }
+                        resultRows.push(row);
+                        return 0;
+                    };
+                    callbackPtr = mod.addFunction(callback, 'iiiii');
                 }
-            } else {
-                this.showOutput('✅ SQL executed successfully', 'success');
-                this.debugLog('SQL executed:', sql);
-
-                // Real events are automatically emitted by instrumented SQLite
-                // through the window.sqliteVisEventHandler callback
+            } catch (e) {
+                callbackPtr = 0;
             }
 
-            this.sqliteModule._free(errorPtrPtr);
-            this.updateStatus('Ready');
+            let result;
+            if (callbackPtr) {
+                result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
+                try { mod.removeFunction(callbackPtr); } catch(e) {}
+            } else {
+                // Fallback: try prepare/step for SELECT statements
+                if (/^\s*SELECT\b/i.test(trimmedSql)) {
+                    mod._free(sqlPtr);
+                    mod._free(errorPtrPtr);
+                    return this._executeSelect(trimmedSql);
+                }
+                result = mod._sqlite3_exec(this.db, sqlPtr, 0, 0, errorPtrPtr);
+            }
+
+            mod._free(sqlPtr);
+
+            if (result !== 0) {
+                const errorMsgPtr = mod.HEAP32[errorPtrPtr >> 2];
+                let errMsg = 'Error code: ' + result;
+                if (errorMsgPtr) errMsg = mod.UTF8ToString(errorMsgPtr);
+                mod._free(errorPtrPtr);
+                return { error: errMsg };
+            }
+
+            mod._free(errorPtrPtr);
+
+            if (hasResults && resultColumns) {
+                return { table: this._buildTable(resultColumns, resultRows) };
+            }
+
+            return { message: 'SQL executed successfully' };
         } catch (error) {
-            console.error('Error executing SQL:', error);
-            this.showOutput('Error: ' + error.message, 'error');
-            this.updateStatus('Error');
+            return { error: error.message };
         }
+    }
+
+    /**
+     * Fallback for SELECT when addFunction is unavailable:
+     * Use sqlite3_prepare_v2 + sqlite3_step + sqlite3_column_text
+     */
+    _executeSelect(sql) {
+        const mod = this.sqliteModule;
+        try {
+            const sqlLen = mod.lengthBytesUTF8(sql) + 1;
+            const sqlPtr = mod._malloc(sqlLen);
+            mod.stringToUTF8(sql, sqlPtr, sqlLen);
+
+            const stmtPtrPtr = mod._malloc(4);
+            const tailPtrPtr = mod._malloc(4);
+            const result = mod._sqlite3_prepare_v2(this.db, sqlPtr, sqlLen - 1, stmtPtrPtr, tailPtrPtr);
+            mod._free(sqlPtr);
+
+            if (result !== 0) {
+                const errPtr = mod._sqlite3_errmsg(this.db);
+                const errMsg = errPtr ? mod.UTF8ToString(errPtr) : 'prepare error ' + result;
+                mod._free(stmtPtrPtr);
+                mod._free(tailPtrPtr);
+                return { error: errMsg };
+            }
+
+            const stmt = mod.HEAP32[stmtPtrPtr >> 2];
+            mod._free(stmtPtrPtr);
+            mod._free(tailPtrPtr);
+
+            if (!stmt) {
+                return { message: 'SQL executed successfully' };
+            }
+
+            const SQLITE_ROW = 100;
+            const SQLITE_DONE = 101;
+
+            const firstStep = mod._sqlite3_step(stmt);
+
+            if (firstStep === SQLITE_DONE) {
+                mod._sqlite3_finalize(stmt);
+                return { table: '<table></table>' };
+            }
+
+            if (firstStep !== SQLITE_ROW) {
+                mod._sqlite3_finalize(stmt);
+                return { error: 'Step error: ' + firstStep };
+            }
+
+            // Probe column count by reading consecutive non-null column_text values.
+            // Pre-built WASM lacks sqlite3_column_count, so we detect by probing.
+            // Works correctly when result columns have non-NULL values.
+            const MAX_PROBE = 20;
+            let colCount = 0;
+            const firstRow = [];
+            for (let i = 0; i < MAX_PROBE; i++) {
+                const ptr = mod._sqlite3_column_text(stmt, i);
+                if (ptr === 0) break;
+                firstRow.push(mod.UTF8ToString(ptr));
+                colCount = i + 1;
+            }
+
+            const rows = [firstRow];
+
+            while (true) {
+                const stepResult = mod._sqlite3_step(stmt);
+                if (stepResult === SQLITE_DONE) break;
+                if (stepResult !== SQLITE_ROW) {
+                    mod._sqlite3_finalize(stmt);
+                    return { error: 'Step error: ' + stepResult };
+                }
+
+                const row = [];
+                for (let i = 0; i < colCount; i++) {
+                    const ptr = mod._sqlite3_column_text(stmt, i);
+                    row.push(ptr === 0 ? null : mod.UTF8ToString(ptr));
+                }
+                rows.push(row);
+            }
+
+            mod._sqlite3_finalize(stmt);
+
+            if (colCount === 0) {
+                return { table: '<table></table>' };
+            }
+
+            const colNames = [];
+            for (let i = 0; i < colCount; i++) colNames.push('col' + (i + 1));
+            return { table: this._buildTable(colNames, rows) };
+        } catch (error) {
+            return { error: error.message };
+        }
+    }
+
+
+    _buildTable(columns, rows) {
+        let html = '<table><tr>';
+        columns.forEach(col => html += `<th>${this._escapeHtml(col)}</th>`);
+        html += '</tr>';
+        rows.forEach(row => {
+            html += '<tr>';
+            row.forEach(cell => html += `<td>${this._escapeHtml(cell)}</td>`);
+            html += '</tr>';
+        });
+        html += '</table>';
+        return html;
     }
 
     /**
@@ -425,7 +649,6 @@ class SQLiteVisApp {
      */
     showOutput(content, type = 'text') {
         const outputDiv = document.getElementById('output');
-        // Much faster than innerHTML - uses textContent
         outputDiv.textContent = content;
 
         if (type === 'error') {
@@ -435,6 +658,14 @@ class SQLiteVisApp {
         } else {
             outputDiv.style.color = 'var(--text-primary)';
         }
+    }
+
+    /**
+     * Show HTML content in the output panel
+     */
+    showHTMLOutput(html) {
+        const outputDiv = document.getElementById('output');
+        outputDiv.innerHTML = html;
     }
 
     /**
