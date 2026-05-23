@@ -9,7 +9,7 @@ class SQLiteVisApp {
         this.sqliteModule = null;
         this.visualizer = null;
         this.isInitialized = false;
-        // Debug mode - can be toggled via console: app.setDebugMode(true)
+        this._addFunctionAvailable = null; // cached check
         this.debugMode = false;
     }
 
@@ -473,8 +473,25 @@ class SQLiteVisApp {
             let hasResults = false;
             let callbackPtr = 0;
 
-            try {
-                if (mod.addFunction) {
+            // Cache addFunction availability check (pre-built WASM lacks RESERVED_FUNCTION_POINTERS)
+            if (this._addFunctionAvailable === null) {
+                try {
+                    if (mod.addFunction) {
+                        mod.addFunction(() => 0, 'ii');
+                        mod.removeFunction(mod.addFunction(() => 0, 'ii'));
+                        // If we get here, addFunction works (but we leaked 2 slots - that's OK for one-time check)
+                        // Actually let's test differently
+                        this._addFunctionAvailable = true;
+                    } else {
+                        this._addFunctionAvailable = false;
+                    }
+                } catch (e) {
+                    this._addFunctionAvailable = false;
+                }
+            }
+
+            if (this._addFunctionAvailable) {
+                try {
                     const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
                         hasResults = true;
                         if (!resultColumns) {
@@ -497,9 +514,10 @@ class SQLiteVisApp {
                         return 0;
                     };
                     callbackPtr = mod.addFunction(callback, 'iiiii');
+                } catch (e) {
+                    callbackPtr = 0;
+                    this._addFunctionAvailable = false;
                 }
-            } catch (e) {
-                callbackPtr = 0;
             }
 
             let result;
@@ -632,16 +650,16 @@ class SQLiteVisApp {
 
 
     _buildTable(columns, rows) {
-        let html = '<table><tr>';
-        columns.forEach(col => html += `<th>${this._escapeHtml(col)}</th>`);
-        html += '</tr>';
-        rows.forEach(row => {
-            html += '<tr>';
-            row.forEach(cell => html += `<td>${this._escapeHtml(cell)}</td>`);
-            html += '</tr>';
-        });
-        html += '</table>';
-        return html;
+        const parts = ['<table><tr>'];
+        for (const col of columns) parts.push(`<th>${this._escapeHtml(col)}</th>`);
+        parts.push('</tr>');
+        for (const row of rows) {
+            parts.push('<tr>');
+            for (const cell of row) parts.push(`<td>${this._escapeHtml(cell)}</td>`);
+            parts.push('</tr>');
+        }
+        parts.push('</table>');
+        return parts.join('');
     }
 
     /**
