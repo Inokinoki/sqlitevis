@@ -207,6 +207,9 @@ class SQLiteVisApp {
         eventManager.on(6, (e) => { // PAGE_ALLOCATE
             this.debugLog('[PAGE_ALLOCATE] Page:', e.data.page, 'Type:', e.data.type);
             if (this.visualizer) this.visualizer.addPage(e.data.page, e.data.type);
+            // Update page count in footer immediately
+            const el = document.getElementById('page-count');
+            if (el && this.visualizer) el.textContent = this.visualizer.nodes.size;
         });
 
         eventManager.on(7, (e) => { // PAGE_FREE
@@ -215,6 +218,8 @@ class SQLiteVisApp {
                 this.visualizer.nodes.delete(e.data.page);
                 this.visualizer.layout();
                 this.visualizer.draw();
+                const el = document.getElementById('page-count');
+                if (el) el.textContent = this.visualizer.nodes.size;
             }
         });
 
@@ -330,35 +335,7 @@ class SQLiteVisApp {
             return;
         }
 
-        // Split into statements
-        const statements = [];
-        let current = '';
-        let inString = false;
-        let quote = '';
-        for (const c of sql) {
-            if (!inString && (c === "'" || c === '"')) {
-                inString = true;
-                quote = c;
-                current += c;
-                continue;
-            }
-            if (inString && c === quote) {
-                inString = false;
-                current += c;
-                continue;
-            }
-            if (inString) {
-                current += c;
-                continue;
-            }
-            if (c === ';') {
-                if (current.trim()) statements.push(current.trim());
-                current = '';
-            } else {
-                current += c;
-            }
-        }
-        if (current.trim()) statements.push(current.trim());
+        const statements = this._splitStatements(sql).map(s => s.trim()).filter(s => s);
 
         if (statements.length === 0) {
             this.showOutput('No SQL statements found', 'error');

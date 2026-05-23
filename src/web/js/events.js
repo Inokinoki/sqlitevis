@@ -105,8 +105,8 @@ class EventManager {
             }
             this.notifyListeners(event);
 
-            // Use requestIdleCallback for non-critical stats updates
-            if (this.eventCount % 10 === 0) {
+            // Update stats — synchronous for accuracy, every 5th event to avoid layout thrash
+            if (this.eventCount % 5 === 0) {
                 this.updateStats();
             }
         } catch (error) {
@@ -308,24 +308,11 @@ class EventManager {
     }
 
     /**
-     * Update statistics display with requestIdleCallback for non-critical updates
+     * Update statistics display
      */
     updateStats() {
-        // Use requestIdleCallback for non-blocking UI updates
-        if ('requestIdleCallback' in window) {
-            requestIdleCallback(() => {
-                const eventCountElement = document.getElementById('event-count');
-                if (eventCountElement) {
-                    eventCountElement.textContent = this.eventCount;
-                }
-            }, { timeout: 2000 });
-        } else {
-            // Fallback for browsers without requestIdleCallback
-            const eventCountElement = document.getElementById('event-count');
-            if (eventCountElement) {
-                eventCountElement.textContent = this.eventCount;
-            }
-        }
+        const el = document.getElementById('event-count');
+        if (el) el.textContent = this.eventCount;
     }
 
     /**
