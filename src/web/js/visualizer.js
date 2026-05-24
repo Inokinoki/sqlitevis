@@ -1397,28 +1397,30 @@ class BTreeVisualizer {
         }
 
         // Pre-calculate colors
-        const keywordColor = this.colors.nodeInternal;
-        const identifierColor = this.colors.nodeLeaf;
-        const defaultColor = this.colors.background;
+        const keywordColor = this.colors.nodeInternal;   // purple for keywords
+        const identifierColor = this.colors.nodeLeaf;     // green for identifiers
+        const stringColor = '#f59e0b';                    // amber for strings
+        const numberColor = '#3b82f6';                    // blue for numbers
+        const symbolColor = '#6b7280';                    // gray for symbols/operators
         const borderColor = this.colors.border;
 
         // Batch tokens by type to minimize fillStyle changes
         const keywordTokens = [];
         const identifierTokens = [];
-        const otherTokens = [];
+        const stringTokens = [];
+        const numberTokens = [];
+        const symbolTokens = [];
 
         for (let i = 0; i < tokensToRender; i++) {
             const token = this.parseTokens[i];
             const y = startY + 30 + i * (tokenHeight + tokenGap);
             const tokenData = { token, x: 20, y };
 
-            if (token.type === 'keyword') {
-                keywordTokens.push(tokenData);
-            } else if (token.type === 'identifier') {
-                identifierTokens.push(tokenData);
-            } else {
-                otherTokens.push(tokenData);
-            }
+            if (token.type === 'keyword') keywordTokens.push(tokenData);
+            else if (token.type === 'identifier') identifierTokens.push(tokenData);
+            else if (token.type === 'string') stringTokens.push(tokenData);
+            else if (token.type === 'number') numberTokens.push(tokenData);
+            else symbolTokens.push(tokenData);
         }
 
         // Helper to draw token batch
@@ -1445,7 +1447,9 @@ class BTreeVisualizer {
         };
 
         // Draw batches by color (fewer context state changes)
-        drawTokenBatch(otherTokens, defaultColor);
+        drawTokenBatch(symbolTokens, symbolColor);
+        drawTokenBatch(numberTokens, numberColor);
+        drawTokenBatch(stringTokens, stringColor);
         drawTokenBatch(identifierTokens, identifierColor);
         drawTokenBatch(keywordTokens, keywordColor);
 

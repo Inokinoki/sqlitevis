@@ -342,20 +342,6 @@ class EventManager {
     getEventsByType(eventType) {
         return this.events.filter(e => e.type === eventType);
     }
-
-    /**
-     * Get events by category
-     */
-    getEventsByCategory(category) {
-        return this.events.filter(e => e.category === category);
-    }
-
-    /**
-     * Get recent events
-     */
-    getRecentEvents(count = 100) {
-        return this.events.slice(-count);
-    }
 }
 
 // Global event manager instance

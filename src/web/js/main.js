@@ -82,8 +82,7 @@ class SQLiteVisApp {
      * Setup event handlers before visualizer is ready
      */
     setupEventHandlers() {
-        // Event handlers will be connected in connectEvents() when visualizer is ready
-        this._pendingEvents = [];
+        // Event handlers connected in connectEvents() when visualizer is ready
     }
 
     /**
@@ -397,7 +396,11 @@ class SQLiteVisApp {
             if (this.visualizer) this.visualizer.showParseStart(stmt.trim());
             lastOutput = this._executeOne(stmt.trim());
             if (lastOutput && lastOutput.error) {
-                this.showHTMLOutput(`<div style="color:var(--danger-color)">SQL Error: ${this._escapeHtml(lastOutput.error)}</div>`);
+                this.showHTMLOutput(
+                    `<div style="color:var(--danger-color);font-weight:600">SQL Error</div>` +
+                    `<div style="color:var(--text-secondary);margin:4px 0;font-family:monospace;font-size:13px;background:var(--bg-tertiary);padding:6px 10px;border-radius:4px">${this._escapeHtml(stmt.trim())}</div>` +
+                    `<div style="color:var(--danger-color)">${this._escapeHtml(lastOutput.error)}</div>`
+                );
                 this.updateStatus('Error');
                 return;
             }
