@@ -222,15 +222,13 @@ class SQLiteVisApp {
             }
         });
 
-        // Parse events
+        // Parse events - logged for event display, token data from client-side tokenizer
         eventManager.on(8, (e) => { // PARSE_START
             this.debugLog('[PARSE_START] SQL:', e.data.sql);
-            if (this.visualizer) this.visualizer.showParseStart(e.data.sql);
         });
 
         eventManager.on(9, (e) => { // PARSE_TOKEN
             this.debugLog('[PARSE_TOKEN] Token:', e.data.token, 'Type:', e.data.type);
-            if (this.visualizer) this.visualizer.showParseToken(e.data.token, e.data.type);
         });
 
         eventManager.on(10, (e) => { // PARSE_COMPLETE

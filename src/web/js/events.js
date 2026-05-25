@@ -55,14 +55,10 @@ class EventManager {
 
     /**
      * Handle an event from the WASM module.
-     * Pre-built WASM sends parse events with wrong event type codes:
-     *   parse_start   → type 11 (VDBE_START)  with {parseType:"start"}
-     *   parse_token   → type 13 (VDBE_COMPLETE) with {parseType:"token"}
-     *   parse_complete → type 6  (PAGE_ALLOCATE) with {parseType:"complete"}
-     * We detect parseType and re-route to the correct logical type.
+     * Events are routed by type: 0-7 btree, 8-10 parse, 11-13 vdbe
      */
     handleEvent(eventType, dataJson) {
-        // Always count events and throttle DOM logging for VDBE opcodes
+        // Throttle DOM logging for VDBE opcodes (very high frequency)
         let skipDomLog = false;
         if (eventType === 12) { // VDBE_OPCODE
             this._vdbeOpcodeCount = (this._vdbeOpcodeCount || 0) + 1;
@@ -80,15 +76,8 @@ class EventManager {
                 data = { _raw: dataJson, _parseError: true };
             }
 
-            // Fix event routing for pre-built WASM with broken C bridge
-            let effectiveType = eventType;
-            if (data.parseType === 'start') {
-                effectiveType = 8;  // PARSE_START
-            } else if (data.parseType === 'token') {
-                effectiveType = 9;  // PARSE_TOKEN
-            } else if (data.parseType === 'complete') {
-                effectiveType = 10; // PARSE_COMPLETE
-            }
+            // Use event type directly (rebuilt WASM sends correct types)
+            const effectiveType = eventType;
 
             const event = {
                 id: this.eventCount++,
@@ -288,7 +277,7 @@ class EventManager {
                 return `sql="${data.sql}"`;
 
             case 'PARSE_TOKEN':
-                return `token="${data.token}", type=${data.type}`;
+                return `token="${data.token}", type=${data.tokenType}`;
 
             case 'PARSE_COMPLETE':
                 return `success=${data.success}`;
