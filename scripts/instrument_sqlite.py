@@ -43,6 +43,7 @@ def instrument_file(filepath):
             declarations = """
 /* Visualization event hooks - defined in sqlite_bridge.c */
 #ifdef EMSCRIPTEN
+extern void btree_open_event(int page_size, int num_pages);
 extern void page_allocate_event(int page_num, int page_type);
 extern void page_free_event(int page_num);
 extern void btree_insert_event(int page_num, int cell_idx, const char* key, int key_len);
@@ -127,14 +128,12 @@ extern void parse_complete_event(int success);
                 print(f"  └─ Added parse_complete_event at line {return_idx}")
 
     # =========================================================================
-    # 5. Instrument sqlite3_exec — vdbe_start_event + page_allocate_event
-    #    Find the DEFINITION (contains 'zSql,' in the params — only definition has multiple params)
+    # 5. Instrument sqlite3_exec — vdbe_start_event (NO mock page_allocate)
+    #    Real page events now come from allocateBtreePage.
     # =========================================================================
-    # The definition starts at "SQLITE_API int sqlite3_exec(" and has body with zSql param
     exec_idx = -1
     for i in range(len(lines)):
         if re.search(r'SQLITE_API int sqlite3_exec\(', lines[i]):
-            # Check if next lines contain the body (multiple params = definition)
             for j in range(i, min(i + 10, len(lines))):
                 if '{' in lines[j]:
                     exec_idx = i
@@ -146,9 +145,7 @@ extern void parse_complete_event(int success);
         prepare_idx = find_line_number(lines, r'rc = sqlite3_prepare_v2\(db, zSql', exec_idx)
         if prepare_idx >= 0:
             vdbe_hook = """#ifdef EMSCRIPTEN
-      static int visPageCounter = 1;
       vdbe_start_event(pStmt ? ((Vdbe *)pStmt)->nOp : 0);
-      page_allocate_event(visPageCounter++, 1);  /* Create visualization node */
 #endif"""
             lines.insert(prepare_idx + 1, vdbe_hook)
             print(f"  └─ Added vdbe_start_event at line {prepare_idx + 1}")
@@ -235,18 +232,104 @@ extern void parse_complete_event(int success);
                 break
 
     # =========================================================================
-    # 9. B-tree instrumentation — keep existing regex-based approach for now
+    # 9. Instrument sqlite3BtreeOpen — btree_open_event
+    #    Insert AFTER successful open: "*ppBtree = p;" (line just before label)
     # =========================================================================
-    content = '\n'.join(lines)
+    btree_open_idx = find_line_number(lines, r'SQLITE_PRIVATE int sqlite3BtreeOpen\(')
+    if btree_open_idx >= 0 and not any('btree_open_event' in lines[i] for i in range(btree_open_idx, min(btree_open_idx + 400, len(lines)))):
+        # Find "*ppBtree = p;" before the btree_open_out label
+        ppbtree_idx = find_line_number(lines, r'\*\s*ppBtree\s*=\s*p\s*;', btree_open_idx)
+        if ppbtree_idx >= 0:
+            lines.insert(ppbtree_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(ppbtree_idx + 2, '  btree_open_event(pBt ? (int)pBt->pageSize : 0, 0);')
+            lines.insert(ppbtree_idx + 3, '#endif')
+            print(f"  └─ Added btree_open_event at line {ppbtree_idx + 1}")
+        else:
+            print("  └─ WARNING: Could not find *ppBtree = p in sqlite3BtreeOpen")
+    else:
+        if btree_open_idx >= 0:
+            print("  └─ btree_open_event already present")
 
-    # Re-parse as content for regex-based B-tree hooks
-    print("  └─ Adding B-tree hooks...")
+    # =========================================================================
+    # 10. Instrument sqlite3BtreeClose — btree_close_event (use page_free_event)
+    #     Insert at the beginning of sqlite3BtreeClose body.
+    # =========================================================================
+    btree_close_idx = find_line_number(lines, r'SQLITE_PRIVATE int sqlite3BtreeClose\(Btree \*p\)')
+    if btree_close_idx >= 0 and not any('btree_close' in lines[i] for i in range(btree_close_idx, min(btree_close_idx + 30, len(lines)))):
+        # Find opening brace
+        brace_idx = find_line_number(lines, r'\{', btree_close_idx)
+        if brace_idx >= 0:
+            lines.insert(brace_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(brace_idx + 2, '  page_free_event(0);')
+            lines.insert(brace_idx + 3, '#endif')
+            print(f"  └─ Added btree_close_event at line {brace_idx + 1}")
+    else:
+        if btree_close_idx >= 0:
+            print("  └─ btree_close already instrumented")
 
-    # Note: page_allocate_event is already added via sqlite3_exec (mock).
-    # Real page allocation hooks require deeper B-tree instrumentation.
-    # Skip for now — the mock page events work for visualization.
+    # =========================================================================
+    # 11. Instrument allocateBtreePage — real page_allocate_event
+    #     Insert AFTER the "end_allocate_page:" label, BEFORE "releasePage(pTrunk);"
+    #     Only emit when rc==SQLITE_OK (successful allocation).
+    # =========================================================================
+    alloc_page_idx = find_line_number(lines, r'static int allocateBtreePage\(')
+    if alloc_page_idx >= 0 and not any('page_allocate_event' in lines[i] for i in range(alloc_page_idx, min(alloc_page_idx + 400, len(lines)))):
+        end_alloc_idx = find_line_number(lines, r'end_allocate_page:', alloc_page_idx)
+        if end_alloc_idx >= 0:
+            lines.insert(end_alloc_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(end_alloc_idx + 2, '  if( rc==SQLITE_OK && pPgno ){ page_allocate_event((int)*pPgno, 0); }')
+            lines.insert(end_alloc_idx + 3, '#endif')
+            print(f"  └─ Added page_allocate_event in allocateBtreePage at line {end_alloc_idx + 1}")
+        else:
+            print("  └─ WARNING: Could not find end_allocate_page label")
+    else:
+        if alloc_page_idx >= 0:
+            print("  └─ page_allocate_event already present in allocateBtreePage")
+
+    # =========================================================================
+    # 12. Instrument sqlite3BtreeInsert — btree_insert_event
+    #     Insert AFTER "rc = insertCellFast(...)" — the actual insertion point.
+    #     Only emit on success (rc==SQLITE_OK).
+    # =========================================================================
+    btree_insert_idx = find_line_number(lines, r'SQLITE_PRIVATE int sqlite3BtreeInsert\(')
+    if btree_insert_idx >= 0 and not any('btree_insert_event' in lines[i] for i in range(btree_insert_idx, min(btree_insert_idx + 400, len(lines)))):
+        insert_cell_idx = find_line_number(lines, r'rc = insertCellFast\(', btree_insert_idx)
+        if insert_cell_idx >= 0:
+            insert_hook = """#ifdef EMSCRIPTEN
+    if( rc==SQLITE_OK ){
+      btree_insert_event((int)pPage->pgno, idx, (const char*)0, (int)(pX->nKey));
+    }
+#endif"""
+            lines.insert(insert_cell_idx + 1, insert_hook)
+            print(f"  └─ Added btree_insert_event at line {insert_cell_idx + 1}")
+        else:
+            print("  └─ WARNING: Could not find insertCellFast in sqlite3BtreeInsert")
+    else:
+        if btree_insert_idx >= 0:
+            print("  └─ btree_insert_event already present")
+
+    # =========================================================================
+    # 13. Instrument sqlite3BtreeDelete — btree_delete_event
+    #     Insert AFTER the cell is located, BEFORE the actual delete.
+    #     We use pCur->ix and pCur->pPage->pgno.
+    # =========================================================================
+    btree_delete_idx = find_line_number(lines, r'SQLITE_PRIVATE int sqlite3BtreeDelete\(BtCursor \*pCur, u8 flags\)')
+    if btree_delete_idx >= 0 and not any('btree_delete_event' in lines[i] for i in range(btree_delete_idx, min(btree_delete_idx + 200, len(lines)))):
+        # Find pCell = findCell(pPage, iCellIdx); — the point where cell is located
+        findcell_idx = find_line_number(lines, r'pCell = findCell\(pPage, iCellIdx\)', btree_delete_idx)
+        if findcell_idx >= 0:
+            lines.insert(findcell_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(findcell_idx + 2, '  btree_delete_event((int)pPage->pgno, iCellIdx);')
+            lines.insert(findcell_idx + 3, '#endif')
+            print(f"  └─ Added btree_delete_event at line {findcell_idx + 1}")
+        else:
+            print("  └─ WARNING: Could not find findCell in sqlite3BtreeDelete")
+    else:
+        if btree_delete_idx >= 0:
+            print("  └─ btree_delete_event already present")
 
     # Write back
+    content = '\n'.join(lines)
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
@@ -274,18 +357,22 @@ def main():
     success = instrument_file(filepath)
 
     if success:
-        print("\n✅ Instrumentation complete!")
-        print("\n📊 Event hooks added for:")
-        print("   🌳 B-tree Operations:")
-        print("      • Page allocation (mock in sqlite3_exec)")
-        print("   ⚙️  VDBE Execution:")
-        print("      • Execution start")
-        print("      • Opcode execution (first 200 per statement)")
-        print("      • Execution complete")
-        print("   📝 SQL Parser:")
-        print("      • Parse start")
-        print("      • Token recognition")
-        print("      • Parse complete")
+        print("\nInstrumentation complete!")
+        print("\nEvent hooks added for:")
+        print("   B-tree Operations:")
+        print("      - B-tree open (sqlite3BtreeOpen)")
+        print("      - B-tree close (sqlite3BtreeClose)")
+        print("      - Page allocation (allocateBtreePage)")
+        print("      - Insert (sqlite3BtreeInsert)")
+        print("      - Delete (sqlite3BtreeDelete)")
+        print("   VDBE Execution:")
+        print("      - Execution start")
+        print("      - Opcode execution (first 200 per statement)")
+        print("      - Execution complete")
+        print("   SQL Parser:")
+        print("      - Parse start")
+        print("      - Token recognition")
+        print("      - Parse complete")
     else:
         print("\n⚠️  No instrumentation added")
         print("   File may already be instrumented or patterns not found")
