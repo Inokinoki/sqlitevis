@@ -71,6 +71,7 @@ build-wasm: instrument
 		$(SQLITE_INSTRUMENTED)/sqlite3.c \
 		$(WASM_DIR)/sqlite_bridge.c \
 		-o $(JS_OUTPUT)
+	@cp $(JS_OUTPUT) $(WASM_OUTPUT) src/web/build/
 	@echo "Build complete: $(WASM_OUTPUT)"
 	@echo "JavaScript glue: $(JS_OUTPUT)"
 

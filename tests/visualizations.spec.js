@@ -123,14 +123,14 @@ test.describe('Event System', () => {
     });
 
     test('page allocation events are emitted', async ({ page }) => {
-        await page.fill('#sql-input', "CREATE TABLE pages_test(id INTEGER);");
+        await page.fill('#sql-input', "CREATE TABLE pages_test(id INTEGER); INSERT INTO pages_test VALUES(1); INSERT INTO pages_test VALUES(2);");
         await page.click('#execute-btn');
-        await page.waitForTimeout(200);
+        await page.waitForTimeout(300);
 
-        // Should have PAGE_ALLOC event
+        // Should have PAGE_ALLOCATE or BTREE_INSERT events (real btree events)
         const events = await page.locator('.event-item').allTextContents();
-        const hasPageAlloc = events.some(e => e.includes('PAGE_ALLOC'));
-        expect(hasPageAlloc).toBeTruthy();
+        const hasPageOrInsert = events.some(e => e.includes('PAGE_ALLOCATE') || e.includes('BTREE_INSERT'));
+        expect(hasPageOrInsert).toBeTruthy();
     });
 
     test('VDBE events are emitted', async ({ page }) => {

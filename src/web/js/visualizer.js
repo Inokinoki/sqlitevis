@@ -417,8 +417,12 @@ class BTreeVisualizer {
      * Handle cell insertion
      */
     addCell(pageNum, cellIdx, keyLen) {
-        const node = this.nodes.get(pageNum);
-        if (!node) return;
+        let node = this.nodes.get(pageNum);
+        if (!node) {
+            // Auto-create page node if not yet allocated (PAGE_ALLOCATE may have fired before JS connected)
+            this.addPage(pageNum, 1);
+            node = this.nodes.get(pageNum);
+        }
 
         const cell = {
             idx: cellIdx,
