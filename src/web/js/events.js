@@ -268,28 +268,30 @@ class EventManager {
                 return `original=${data.originalPage} → new=${data.newPage}, split at cell ${data.splitCell}`;
 
             case 'PAGE_ALLOCATE':
-                return `page=${data.page}, type=${data.type}`;
+                return `page ${data.page} (${data.type === 1 ? 'leaf table' : data.type === 2 ? 'interior index' : data.type === 5 ? 'interior table' : data.type === 10 ? 'leaf index' : 'type ' + data.type})`;
 
             case 'PAGE_FREE':
-                return `page=${data.page}`;
+                return `page ${data.page}`;
 
             case 'PARSE_START':
-                return `sql="${data.sql}"`;
+                const sql = data.sql || '';
+                return sql.length > 80 ? `"${sql.substring(0, 77)}..."` : `"${sql}"`;
 
             case 'PARSE_TOKEN':
-                return `token="${data.token}", type=${data.tokenType}`;
+                return `"${data.token}" (${data.tokenType})`;
 
             case 'PARSE_COMPLETE':
-                return `success=${data.success}`;
+                return data.success ? 'success' : 'failed';
 
             case 'VDBE_START':
-                return `opcodes=${data.numOpcodes}`;
+                return `${data.numOpcodes} opcodes`;
 
             case 'VDBE_OPCODE':
-                return `[${data.pc}] ${data.opcode} ${data.p1},${data.p2},${data.p3}`;
+                return `[${data.pc}] ${data.opcode} p1=${data.p1} p2=${data.p2} p3=${data.p3}`;
 
             case 'VDBE_COMPLETE':
-                return `result=${data.resultCode}`;
+                const codes = { 0: 'OK', 5: 'BUSY', 6: 'LOCKED', 1: 'ERROR', 100: 'ROW', 101: 'DONE' };
+                return codes[data.resultCode] || `code ${data.resultCode}`;
 
             default:
                 return JSON.stringify(data);

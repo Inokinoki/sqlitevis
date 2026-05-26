@@ -9,25 +9,6 @@ class SQLiteVisApp {
         this.sqliteModule = null;
         this.visualizer = null;
         this.isInitialized = false;
-        this._addFunctionAvailable = null; // cached check
-        this.debugMode = false;
-    }
-
-    /**
-     * Set debug mode for verbose logging
-     */
-    setDebugMode(enabled) {
-        this.debugMode = enabled;
-        console.log('Debug mode:', enabled ? 'ENABLED' : 'DISABLED');
-    }
-
-    /**
-     * Debug logging helper
-     */
-    debugLog(...args) {
-        if (this.debugMode) {
-            console.log(...args);
-        }
     }
 
     /**
@@ -104,7 +85,6 @@ class SQLiteVisApp {
 
             // Load the module
             this.sqliteModule = await createSQLiteModule();
-            this.debugLog('SQLite WASM module loaded successfully');
 
             // Allocate memory for database path string
             const dbPath = ':memory:'; // Use in-memory database
@@ -147,14 +127,9 @@ class SQLiteVisApp {
             this.sqliteModule._free(dbPathPtr);
             this.sqliteModule._free(dbPtrPtr);
 
-            this.debugLog('SQLite initialized successfully (in-memory database)');
-            this.debugLog('Database handle:', this.db);
-
             // Clear initialization events from the log
-            // SQLite fires internal events during sqlite3_open() that we don't want to show
             if (typeof eventManager !== 'undefined') {
                 eventManager.clear();
-                this.debugLog('Cleared initialization events');
             }
         } catch (error) {
             console.error('SQLite initialization failed:', error);
@@ -168,51 +143,34 @@ class SQLiteVisApp {
     connectEvents() {
         // B-tree events
         eventManager.on(0, (e) => { // BTREE_OPEN
-            this.debugLog('[BTREE_OPEN] Page size:', e.data.pageSize, 'Pages:', e.data.numPages);
             if (this.visualizer) this.visualizer.pageSize = e.data.pageSize;
         });
 
-        eventManager.on(1, (e) => { // BTREE_CLOSE
-            this.debugLog('[BTREE_CLOSE] B-tree closed');
-            // B-tree close doesn't need visualization
-        });
+        eventManager.on(1, (e) => { /* BTREE_CLOSE */ });
 
         eventManager.on(2, (e) => { // BTREE_INSERT
-            this.debugLog('[BTREE_INSERT] Page:', e.data.page, 'Cell:', e.data.cell, 'KeyLen:', e.data.keyLen);
             if (this.visualizer) this.visualizer.addCell(e.data.page, e.data.cell, e.data.keyLen);
         });
 
         eventManager.on(3, (e) => { // BTREE_DELETE
-            this.debugLog('[BTREE_DELETE] Page:', e.data.page, 'Cell:', e.data.cell);
             if (this.visualizer) this.visualizer.deleteCell(e.data.page, e.data.cell);
         });
 
         eventManager.on(4, (e) => { // BTREE_SPLIT
-            this.debugLog('[BTREE_SPLIT] Original:', e.data.originalPage, 'New:', e.data.newPage, 'SplitCell:', e.data.splitCell);
             if (this.visualizer) {
-                this.visualizer.splitPage(
-                    e.data.originalPage,
-                    e.data.newPage,
-                    e.data.splitCell
-                );
+                this.visualizer.splitPage(e.data.originalPage, e.data.newPage, e.data.splitCell);
             }
         });
 
-        eventManager.on(5, (e) => { // BTREE_BALANCE
-            this.debugLog('[BTREE_BALANCE] Page:', e.data.page, 'NumCells:', e.data.numCells);
-            // Could add visualization for balancing operation
-        });
+        eventManager.on(5, (e) => { /* BTREE_BALANCE */ });
 
         eventManager.on(6, (e) => { // PAGE_ALLOCATE
-            this.debugLog('[PAGE_ALLOCATE] Page:', e.data.page, 'Type:', e.data.type);
             if (this.visualizer) this.visualizer.addPage(e.data.page, e.data.type);
-            // Update page count in footer immediately
             const el = document.getElementById('page-count');
             if (el && this.visualizer) el.textContent = this.visualizer.nodes.size;
         });
 
         eventManager.on(7, (e) => { // PAGE_FREE
-            this.debugLog('[PAGE_FREE] Page:', e.data.page);
             if (this.visualizer) {
                 this.visualizer.nodes.delete(e.data.page);
                 this.visualizer.layout();
@@ -222,37 +180,27 @@ class SQLiteVisApp {
             }
         });
 
-        // Parse events - logged for event display, token data from client-side tokenizer
-        eventManager.on(8, (e) => { // PARSE_START
-            this.debugLog('[PARSE_START] SQL:', e.data.sql);
-        });
+        // Parse events
+        eventManager.on(8, (e) => { /* PARSE_START - data logged via eventManager */ });
 
-        eventManager.on(9, (e) => { // PARSE_TOKEN
-            this.debugLog('[PARSE_TOKEN] Token:', e.data.token, 'Type:', e.data.type);
-        });
+        eventManager.on(9, (e) => { /* PARSE_TOKEN */ });
 
         eventManager.on(10, (e) => { // PARSE_COMPLETE
-            this.debugLog('[PARSE_COMPLETE] Success:', e.data.success);
             if (this.visualizer) this.visualizer.showParseComplete(e.data.success);
         });
 
         // VDBE events
         eventManager.on(11, (e) => { // VDBE_START
-            this.debugLog('[VDBE_START] NumOpcodes:', e.data.numOpcodes);
             if (this.visualizer) this.visualizer.showVdbeStart(e.data.numOpcodes);
         });
 
         eventManager.on(12, (e) => { // VDBE_OPCODE
-            this.debugLog('[VDBE_OPCODE] PC:', e.data.pc, 'Opcode:', e.data.opcode, 'P1:', e.data.p1, 'P2:', e.data.p2, 'P3:', e.data.p3);
             if (this.visualizer) this.visualizer.showVdbeOpcode(e.data.pc, e.data.opcode, e.data.p1, e.data.p2, e.data.p3);
         });
 
         eventManager.on(13, (e) => { // VDBE_COMPLETE
-            this.debugLog('[VDBE_COMPLETE] ResultCode:', e.data.resultCode);
             if (this.visualizer) this.visualizer.showVdbeComplete(e.data.resultCode);
         });
-
-        this.debugLog('All event handlers registered successfully');
     }
 
     /**
@@ -437,7 +385,6 @@ class SQLiteVisApp {
         const trimmedSql = sql.trim();
 
         try {
-            // First execute the SQL (for side effects like CREATE/INSERT/DELETE)
             const sqlLen = mod.lengthBytesUTF8(trimmedSql) + 1;
             const sqlPtr = mod._malloc(sqlLen);
             mod.stringToUTF8(trimmedSql, sqlPtr, sqlLen);
@@ -445,73 +392,32 @@ class SQLiteVisApp {
             const errorPtrPtr = mod._malloc(4);
             mod.HEAP32[errorPtrPtr >> 2] = 0;
 
-            // Try sqlite3_exec with callback first
+            // Collect results via callback
             let resultColumns = null;
             let resultRows = [];
             let hasResults = false;
-            let callbackPtr = 0;
 
-            // Cache addFunction availability check (pre-built WASM lacks RESERVED_FUNCTION_POINTERS)
-            if (this._addFunctionAvailable === null) {
-                try {
-                    if (mod.addFunction) {
-                        mod.addFunction(() => 0, 'ii');
-                        mod.removeFunction(mod.addFunction(() => 0, 'ii'));
-                        // If we get here, addFunction works (but we leaked 2 slots - that's OK for one-time check)
-                        // Actually let's test differently
-                        this._addFunctionAvailable = true;
-                    } else {
-                        this._addFunctionAvailable = false;
+            const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
+                hasResults = true;
+                if (!resultColumns) {
+                    resultColumns = [];
+                    for (let i = 0; i < colCount; i++) {
+                        const namePtr = mod.HEAP32[(colNamesPtr >> 2) + i];
+                        resultColumns.push(mod.UTF8ToString(namePtr));
                     }
-                } catch (e) {
-                    this._addFunctionAvailable = false;
                 }
-            }
-
-            if (this._addFunctionAvailable) {
-                try {
-                    const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
-                        hasResults = true;
-                        if (!resultColumns) {
-                            resultColumns = [];
-                            for (let i = 0; i < colCount; i++) {
-                                const namePtr = mod.HEAP32[(colNamesPtr >> 2) + i];
-                                resultColumns.push(mod.UTF8ToString(namePtr));
-                            }
-                        }
-                        const row = [];
-                        for (let i = 0; i < colCount; i++) {
-                            const valPtr = mod.HEAP32[(colValuesPtr >> 2) + i];
-                            if (valPtr === 0) {
-                                row.push(null);
-                            } else {
-                                row.push(mod.UTF8ToString(valPtr));
-                            }
-                        }
-                        resultRows.push(row);
-                        return 0;
-                    };
-                    callbackPtr = mod.addFunction(callback, 'iiiii');
-                } catch (e) {
-                    callbackPtr = 0;
-                    this._addFunctionAvailable = false;
+                const row = [];
+                for (let i = 0; i < colCount; i++) {
+                    const valPtr = mod.HEAP32[(colValuesPtr >> 2) + i];
+                    row.push(valPtr === 0 ? null : mod.UTF8ToString(valPtr));
                 }
-            }
+                resultRows.push(row);
+                return 0;
+            };
+            const callbackPtr = mod.addFunction(callback, 'iiiii');
 
-            let result;
-            if (callbackPtr) {
-                result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
-                try { mod.removeFunction(callbackPtr); } catch(e) {}
-            } else {
-                // Fallback: try prepare/step for SELECT statements
-                if (/^\s*SELECT\b/i.test(trimmedSql)) {
-                    mod._free(sqlPtr);
-                    mod._free(errorPtrPtr);
-                    return this._executeSelect(trimmedSql);
-                }
-                result = mod._sqlite3_exec(this.db, sqlPtr, 0, 0, errorPtrPtr);
-            }
-
+            const result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
+            mod.removeFunction(callbackPtr);
             mod._free(sqlPtr);
 
             if (result !== 0) {
@@ -529,99 +435,6 @@ class SQLiteVisApp {
             }
 
             return { message: 'SQL executed successfully' };
-        } catch (error) {
-            return { error: error.message };
-        }
-    }
-
-    /**
-     * Fallback for SELECT when addFunction is unavailable:
-     * Use sqlite3_prepare_v2 + sqlite3_step + sqlite3_column_text
-     */
-    _executeSelect(sql) {
-        const mod = this.sqliteModule;
-        try {
-            const sqlLen = mod.lengthBytesUTF8(sql) + 1;
-            const sqlPtr = mod._malloc(sqlLen);
-            mod.stringToUTF8(sql, sqlPtr, sqlLen);
-
-            const stmtPtrPtr = mod._malloc(4);
-            const tailPtrPtr = mod._malloc(4);
-            const result = mod._sqlite3_prepare_v2(this.db, sqlPtr, sqlLen - 1, stmtPtrPtr, tailPtrPtr);
-            mod._free(sqlPtr);
-
-            if (result !== 0) {
-                const errPtr = mod._sqlite3_errmsg(this.db);
-                const errMsg = errPtr ? mod.UTF8ToString(errPtr) : 'prepare error ' + result;
-                mod._free(stmtPtrPtr);
-                mod._free(tailPtrPtr);
-                return { error: errMsg };
-            }
-
-            const stmt = mod.HEAP32[stmtPtrPtr >> 2];
-            mod._free(stmtPtrPtr);
-            mod._free(tailPtrPtr);
-
-            if (!stmt) {
-                return { message: 'SQL executed successfully' };
-            }
-
-            const SQLITE_ROW = 100;
-            const SQLITE_DONE = 101;
-
-            const firstStep = mod._sqlite3_step(stmt);
-
-            if (firstStep === SQLITE_DONE) {
-                mod._sqlite3_finalize(stmt);
-                return { table: '<table></table>' };
-            }
-
-            if (firstStep !== SQLITE_ROW) {
-                mod._sqlite3_finalize(stmt);
-                return { error: 'Step error: ' + firstStep };
-            }
-
-            // Use sqlite3_column_count (available in rebuilt WASM)
-            const colCount = mod._sqlite3_column_count(stmt);
-            if (colCount <= 0) {
-                mod._sqlite3_finalize(stmt);
-                return { table: '<table></table>' };
-            }
-
-            // Get column names
-            const colNames = [];
-            for (let i = 0; i < colCount; i++) {
-                const namePtr = mod._sqlite3_column_name(stmt, i);
-                colNames.push(namePtr ? mod.UTF8ToString(namePtr) : 'col' + (i + 1));
-            }
-
-            // Read first row
-            const firstRow = [];
-            for (let i = 0; i < colCount; i++) {
-                const ptr = mod._sqlite3_column_text(stmt, i);
-                firstRow.push(ptr === 0 ? null : mod.UTF8ToString(ptr));
-            }
-
-            const rows = [firstRow];
-
-            while (true) {
-                const stepResult = mod._sqlite3_step(stmt);
-                if (stepResult === SQLITE_DONE) break;
-                if (stepResult !== SQLITE_ROW) {
-                    mod._sqlite3_finalize(stmt);
-                    return { error: 'Step error: ' + stepResult };
-                }
-
-                const row = [];
-                for (let i = 0; i < colCount; i++) {
-                    const ptr = mod._sqlite3_column_text(stmt, i);
-                    row.push(ptr === 0 ? null : mod.UTF8ToString(ptr));
-                }
-                rows.push(row);
-            }
-
-            mod._sqlite3_finalize(stmt);
-            return { table: this._buildTable(colNames, rows) };
         } catch (error) {
             return { error: error.message };
         }
