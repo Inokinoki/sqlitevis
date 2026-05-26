@@ -1390,20 +1390,9 @@ class BTreeVisualizer {
             : this.currentSQL;
         this.ctx.fillText(displaySQL, width / 2, 34);
 
-        // Draw tokens directly below title
+        // Draw tokens
         if (this.parseTokens.length > 0) {
             this.drawParseTokens();
-        }
-
-        // Draw tree if it exists (below tokens or in remaining space)
-        if (this.parseTree) {
-            // Calculate how much space tokens used
-            const tokenAreaBottom = this.parseTokens.length > 0
-                ? Math.min(100 + Math.ceil(this.parseTokens.length / Math.floor((width - 40) / 155)) * 35 + 20, height * 0.5)
-                : 60;
-            if (tokenAreaBottom < height - 100) {
-                this.drawTreeNode(this.parseTree, width / 2, tokenAreaBottom + 50, 0);
-            }
         }
 
         // Status
