@@ -55,10 +55,10 @@ void btree_open_event(int page_size, int num_pages) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-void btree_insert_event(int page_num, int cell_idx, const char* key, int key_len) {
+void btree_insert_event(int page_num, int cell_idx, int key_len, int root_page) {
     emit_vis_event(EVENT_BTREE_INSERT,
-        "{\"page\":%d,\"cell\":%d,\"keyLen\":%d}",
-        page_num, cell_idx, key_len);
+        "{\"page\":%d,\"cell\":%d,\"keyLen\":%d,\"rootPage\":%d}",
+        page_num, cell_idx, key_len, root_page);
 }
 
 EMSCRIPTEN_KEEPALIVE

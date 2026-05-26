@@ -46,7 +46,7 @@ def instrument_file(filepath):
 extern void btree_open_event(int page_size, int num_pages);
 extern void page_allocate_event(int page_num, int page_type);
 extern void page_free_event(int page_num);
-extern void btree_insert_event(int page_num, int cell_idx, const char* key, int key_len);
+extern void btree_insert_event(int page_num, int cell_idx, int key_len, int root_page);
 extern void btree_delete_event(int page_num, int cell_idx);
 extern void btree_split_event(int original_page, int new_page, int split_cell);
 extern void btree_balance_event(int page_num, int num_cells);
@@ -288,22 +288,29 @@ extern void parse_complete_event(int success);
 
     # =========================================================================
     # 12. Instrument sqlite3BtreeInsert — btree_insert_event
-    #     Insert AFTER "rc = insertCellFast(...)" — the actual insertion point.
-    #     Only emit on success (rc==SQLITE_OK).
+    #     Hook 1: After insertCellFast (new cell or drop+insert path)
+    #     Hook 2: Before the overwrite return (memcpy + return SQLITE_OK)
     # =========================================================================
     btree_insert_idx = find_line_number(lines, r'SQLITE_PRIVATE int sqlite3BtreeInsert\(')
     if btree_insert_idx >= 0 and not any('btree_insert_event' in lines[i] for i in range(btree_insert_idx, min(btree_insert_idx + 400, len(lines)))):
+        # Hook 1: insertCellFast path
         insert_cell_idx = find_line_number(lines, r'rc = insertCellFast\(', btree_insert_idx)
         if insert_cell_idx >= 0:
             insert_hook = """#ifdef EMSCRIPTEN
     if( rc==SQLITE_OK ){
-      btree_insert_event((int)pPage->pgno, idx, (const char*)0, (int)(pX->nKey));
+      btree_insert_event((int)pPage->pgno, idx, (int)(pX->nKey), (int)pCur->pgnoRoot);
     }
 #endif"""
             lines.insert(insert_cell_idx + 1, insert_hook)
-            print(f"  └─ Added btree_insert_event at line {insert_cell_idx + 1}")
-        else:
-            print("  └─ WARNING: Could not find insertCellFast in sqlite3BtreeInsert")
+            print(f"  └─ Added btree_insert_event (insertCellFast) at line {insert_cell_idx + 1}")
+
+        # Hook 2: overwrite path (memcpy + early return)
+        memcpy_idx = find_line_number(lines, r'memcpy\(oldCell, newCell, szNew\)', btree_insert_idx)
+        if memcpy_idx >= 0:
+            lines.insert(memcpy_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(memcpy_idx + 2, '  btree_insert_event((int)pPage->pgno, idx, (int)(pX->nKey), (int)pCur->pgnoRoot);')
+            lines.insert(memcpy_idx + 3, '#endif')
+            print(f"  └─ Added btree_insert_event (overwrite) at line {memcpy_idx + 1}")
     else:
         if btree_insert_idx >= 0:
             print("  └─ btree_insert_event already present")
