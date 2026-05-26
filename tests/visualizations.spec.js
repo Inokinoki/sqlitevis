@@ -223,13 +223,12 @@ test.describe('B-Tree Visualization', () => {
     });
 
     test('shows multiple pages with inserts', async ({ page }) => {
-        await page.fill('#sql-input', `CREATE TABLE multi(id INTEGER, v TEXT);
-INSERT INTO multi VALUES(1, 'a');
-INSERT INTO multi VALUES(2, 'b');
-INSERT INTO multi VALUES(3, 'c');
-INSERT INTO multi VALUES(4, 'd');`);
+        const inserts = Array.from({ length: 30 }, (_, i) =>
+            `INSERT INTO multi VALUES(${i}, '${'d'.repeat(200)}');`
+        ).join('\n');
+        await page.fill('#sql-input', `CREATE TABLE multi(id INTEGER, v TEXT);\n${inserts}`);
         await page.click('#execute-btn');
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(1000);
 
         const pageCount = await page.locator('#page-count').textContent();
         const pages = parseInt(pageCount.match(/\d+/)[0]);

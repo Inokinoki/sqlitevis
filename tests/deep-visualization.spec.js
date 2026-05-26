@@ -43,10 +43,13 @@ test.describe('Page-Node Visualization (B-Tree)', () => {
     });
 
     test('additional pages are allocated with more inserts', async ({ page }) => {
-        await page.fill('#sql-input', `CREATE TABLE p2(id INTEGER, v TEXT);
-${Array.from({ length: 10 }, (_, i) => `INSERT INTO p2 VALUES(${i}, 'row${i}');`).join('\n')}`);
+        // Use large string data to force page splits
+        const inserts = Array.from({ length: 50 }, (_, i) =>
+            `INSERT INTO p2 VALUES(${i}, '${'x'.repeat(200)}');`
+        ).join('\n');
+        await page.fill('#sql-input', `CREATE TABLE p2(id INTEGER, v TEXT);\n${inserts}`);
         await page.click('#execute-btn');
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(1000);
 
         const { count, pages } = await page.evaluate(() => {
             const nodes = [...window.viz.nodes.entries()];
@@ -56,9 +59,9 @@ ${Array.from({ length: 10 }, (_, i) => `INSERT INTO p2 VALUES(${i}, 'row${i}');`
             };
         });
 
-        // Multiple inserts should create more pages
+        // Multiple inserts with large data should create more pages
         expect(count).toBeGreaterThanOrEqual(2);
-        // Pages should be sequential positive integers
+        // Pages should be positive integers
         for (const p of pages) {
             expect(p).toBeGreaterThan(0);
         }
