@@ -442,7 +442,7 @@ class BTreeVisualizer {
         const cell = {
             idx: cellIdx,
             keyLen: keyLen,
-            key: `Key${cellIdx}`
+            key: String(keyLen) // For intkey tables, nKey IS the rowid value
         };
 
         node.cells.splice(cellIdx, 0, cell);
@@ -760,13 +760,18 @@ class BTreeVisualizer {
         // Determine node info
         const getNodeInfo = (node) => {
             const isLeaf = node.type === 1;
-            const typeLabel = isLeaf ? 'LEAF TABLE' : 'INTERIOR';
+            const typeLabel = isLeaf ? 'LEAF' : 'INT';
             const accentColor = this.highlightedNodes.has(node.page) ? nodeHighlightColor : (isLeaf ? nodeLeafColor : nodeInternalColor);
-            const headerBg = accentColor;
-            const bodyBg = 'white';
-            const textColor = '#1e293b';
-            const mutedText = '#64748b';
-            return { isLeaf, typeLabel, accentColor, headerBg, bodyBg, textColor, mutedText };
+            return { isLeaf, typeLabel, accentColor };
+        };
+
+        // Dynamic node height based on cell count
+        const cellRowH = 16;
+        const headerH = 26;
+        const footerH = 6;
+        const getDynamicHeight = (node) => {
+            const rows = Math.min(node.cells.length, 8);
+            return headerH + 16 + rows * cellRowH + footerH + (node.cells.length > 8 ? 14 : 0);
         };
 
         // Draw a single rich node
@@ -775,68 +780,98 @@ class BTreeVisualizer {
             const x = node.x;
             const y = node.y;
             const w = this.nodeWidth;
-            const h = this.nodeHeight;
-            const headerH = 28;
+            const dynH = getDynamicHeight(node);
+            const pad = 6;
+            const cellAreaW = w - pad * 2;
 
             // Shadow
             this.ctx.save();
-            this.ctx.shadowColor = 'rgba(0,0,0,0.15)';
-            this.ctx.shadowBlur = 8;
-            this.ctx.shadowOffsetX = 2;
-            this.ctx.shadowOffsetY = 3;
-
-            // Card background (white body)
-            this.roundRect(x, y, w, h, 8);
-            this.ctx.fillStyle = info.bodyBg;
+            this.ctx.shadowColor = 'rgba(0,0,0,0.12)';
+            this.ctx.shadowBlur = 6;
+            this.ctx.shadowOffsetX = 1;
+            this.ctx.shadowOffsetY = 2;
+            this.roundRect(x, y, w, dynH, 6);
+            this.ctx.fillStyle = '#ffffff';
             this.ctx.fill();
             this.ctx.restore();
 
-            // Header bar (colored)
+            // Header bar
             this.ctx.save();
             this.ctx.beginPath();
-            this.ctx.moveTo(x + 8, y);
-            this.ctx.lineTo(x + w - 8, y);
-            this.ctx.quadraticCurveTo(x + w, y, x + w, y + 8);
+            this.ctx.moveTo(x + 6, y);
+            this.ctx.lineTo(x + w - 6, y);
+            this.ctx.quadraticCurveTo(x + w, y, x + w, y + 6);
             this.ctx.lineTo(x + w, y + headerH);
             this.ctx.lineTo(x, y + headerH);
-            this.ctx.lineTo(x, y + 8);
-            this.ctx.quadraticCurveTo(x, y, x + 8, y);
+            this.ctx.lineTo(x, y + 6);
+            this.ctx.quadraticCurveTo(x, y, x + 6, y);
             this.ctx.closePath();
-            this.ctx.fillStyle = info.headerBg;
+            this.ctx.fillStyle = info.accentColor;
             this.ctx.fill();
             this.ctx.restore();
 
             // Border
-            this.roundRect(x, y, w, h, 8);
-            this.ctx.strokeStyle = borderColor;
-            this.ctx.lineWidth = 1.5;
+            this.roundRect(x, y, w, dynH, 6);
+            this.ctx.strokeStyle = '#e2e8f0';
+            this.ctx.lineWidth = 1;
             this.ctx.stroke();
 
-            // Header text: "Page N"
+            // Header text
             this.ctx.fillStyle = 'white';
-            this.ctx.font = 'bold 12px sans-serif';
+            this.ctx.font = 'bold 11px sans-serif';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(`Page ${node.page}`, x + w / 2, y + headerH / 2);
+            this.ctx.fillText(`Page ${node.page}  ·  ${info.typeLabel}`, x + w / 2, y + headerH / 2);
 
-            // Body: type label
-            this.ctx.fillStyle = info.mutedText;
-            this.ctx.font = '11px sans-serif';
-            this.ctx.fillText(info.typeLabel, x + w / 2, y + headerH + 14);
-
-            // Body: cell count
+            // Cell count summary
             const cellCount = node.cells.length;
-            this.ctx.fillStyle = info.textColor;
-            this.ctx.font = 'bold 11px sans-serif';
-            this.ctx.fillText(`${cellCount} cell${cellCount !== 1 ? 's' : ''}`, x + w / 2, y + headerH + 32);
+            let cy = y + headerH + 10;
+            this.ctx.fillStyle = '#475569';
+            this.ctx.font = 'bold 10px sans-serif';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(`${cellCount} cell${cellCount !== 1 ? 's' : ''}`, x + pad, cy);
 
-            // Body: key hints if cells exist
+            // Key range on right
             if (cellCount > 0) {
+                const keys = node.cells.map(c => parseInt(c.key)).filter(k => !isNaN(k)).sort((a, b) => a - b);
+                if (keys.length > 0) {
+                    this.ctx.fillStyle = '#94a3b8';
+                    this.ctx.font = '10px sans-serif';
+                    this.ctx.textAlign = 'right';
+                    this.ctx.fillText(`${keys[0]}..${keys[keys.length - 1]}`, x + w - pad, cy);
+                }
+            }
+
+            // Cell bars
+            cy += 6;
+            const maxShow = 8;
+            const showCells = node.cells.slice(0, maxShow);
+            showCells.forEach((cell, i) => {
+                const barY = cy + i * cellRowH;
+                const barH = cellRowH - 3;
+
+                // Key label
                 this.ctx.fillStyle = info.accentColor;
-                this.ctx.font = '10px sans-serif';
-                const keys = node.cells.slice(0, 3).map(c => c.key).join(', ');
-                const suffix = cellCount > 3 ? '...' : '';
-                this.ctx.fillText(`keys: ${keys}${suffix}`, x + w / 2, y + headerH + 48);
+                this.ctx.font = 'bold 9px monospace';
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText(String(cell.key), x + pad, barY + barH / 2 + 1);
+
+                // Small bar
+                const barX = x + pad + 30;
+                const barMaxW = cellAreaW - 30;
+                const barW = Math.max(4, Math.min(barMaxW, cell.keyLen * 2));
+                this.ctx.fillStyle = info.accentColor + '33'; // transparent
+                this.roundRect(barX, barY, barW, barH, 3);
+                this.ctx.fill();
+            });
+
+            // Overflow indicator
+            if (cellCount > maxShow) {
+                const overflowY = cy + maxShow * cellRowH;
+                this.ctx.fillStyle = '#94a3b8';
+                this.ctx.font = '9px sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(`+${cellCount - maxShow} more`, x + w / 2, overflowY + 6);
             }
         };
 
