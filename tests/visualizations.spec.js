@@ -212,12 +212,12 @@ test.describe('B-Tree Visualization', () => {
         await expect(canvas).toBeVisible();
     });
 
-    test('draws page nodes after CREATE TABLE', async ({ page }) => {
-        await page.fill('#sql-input', "CREATE TABLE bt(id INTEGER, val TEXT);");
+    test('draws page nodes after CREATE TABLE with INSERT', async ({ page }) => {
+        await page.fill('#sql-input', "CREATE TABLE bt(id INTEGER, val TEXT); INSERT INTO bt VALUES(1, 'hello');");
         await page.click('#execute-btn');
         await page.waitForTimeout(300);
 
-        // Page count should update
+        // Page count should update from BTREE_INSERT events
         const pageCount = await page.locator('#page-count').textContent();
         expect(parseInt(pageCount)).toBeGreaterThan(0);
     });

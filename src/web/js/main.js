@@ -178,9 +178,8 @@ class SQLiteVisApp {
         eventManager.on(5, (e) => { /* BTREE_BALANCE */ });
 
         eventManager.on(6, (e) => { // PAGE_ALLOCATE
-            if (this.visualizer) this.visualizer.addPage(e.data.page, e.data.type);
-            const el = document.getElementById('page-count');
-            if (el && this.visualizer) el.textContent = this.visualizer.nodes.size;
+            // Nodes are now auto-created by BTREE_INSERT events with proper tree structure.
+            // PAGE_ALLOCATE only updates existing node page count; skip creating orphan nodes.
         });
 
         eventManager.on(7, (e) => { // PAGE_FREE

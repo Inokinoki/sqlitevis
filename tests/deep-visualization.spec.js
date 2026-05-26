@@ -19,8 +19,8 @@ test.describe('Page-Node Visualization (B-Tree)', () => {
         await page.selectOption('#view-mode', 'btree');
     });
 
-    test('page nodes are created from PAGE_ALLOCATE events', async ({ page }) => {
-        await page.fill('#sql-input', 'CREATE TABLE p1(id INTEGER PRIMARY KEY, val TEXT);');
+    test('page nodes are created from BTREE_INSERT events', async ({ page }) => {
+        await page.fill('#sql-input', "CREATE TABLE p1(id INTEGER PRIMARY KEY, val TEXT); INSERT INTO p1 VALUES(1, 'test');");
         await page.click('#execute-btn');
         await page.waitForTimeout(300);
 
@@ -68,10 +68,9 @@ test.describe('Page-Node Visualization (B-Tree)', () => {
     });
 
     test('page-count in footer updates after execution', async ({ page }) => {
-        // Initially 0 (or low)
         const before = parseInt(await page.locator('#page-count').textContent());
 
-        await page.fill('#sql-input', 'CREATE TABLE footer(id INTEGER);');
+        await page.fill('#sql-input', "CREATE TABLE footer(id INTEGER); INSERT INTO footer VALUES(1);");
         await page.click('#execute-btn');
         await page.waitForTimeout(300);
 
