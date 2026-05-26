@@ -149,7 +149,20 @@ class SQLiteVisApp {
         eventManager.on(1, (e) => { /* BTREE_CLOSE */ });
 
         eventManager.on(2, (e) => { // BTREE_INSERT
-            if (this.visualizer) this.visualizer.addCell(e.data.page, e.data.cell, e.data.keyLen);
+            if (this.visualizer) {
+                const { page, cell, keyLen, rootPage } = e.data;
+                // Skip sqlite_master writes (rootPage 1 = schema table, not user data)
+                if (rootPage === 1) return;
+                // If inserting into a page different from root, it's a child of root
+                if (rootPage && page !== rootPage) {
+                    this.visualizer.addPage(page, 1, rootPage);
+                } else if (rootPage) {
+                    // This page IS the root — ensure it exists
+                    this.visualizer.addPage(page, 1);
+                    this.visualizer.rootPage = rootPage;
+                }
+                this.visualizer.addCell(page, cell, keyLen);
+            }
         });
 
         eventManager.on(3, (e) => { // BTREE_DELETE

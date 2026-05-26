@@ -192,10 +192,10 @@ class BTreeVisualizer {
         };
 
         // Layout
-        this.nodeWidth = 120;
-        this.nodeHeight = 60;
-        this.levelHeight = 120;
-        this.horizontalSpacing = 40;
+        this.nodeWidth = 160;
+        this.nodeHeight = 90;
+        this.levelHeight = 140;
+        this.horizontalSpacing = 50;
 
         // Colors
         this.colors = {
@@ -377,6 +377,21 @@ class BTreeVisualizer {
     addPage(pageNum, pageType, parentPage = null) {
         // Filter out invalid page numbers from misdirected events
         if (pageNum === null || pageNum === undefined || isNaN(pageNum)) return;
+
+        // Don't overwrite existing node (preserves cells, children, etc.)
+        const existing = this.nodes.get(pageNum);
+        if (existing) {
+            // Update parent if provided and not set
+            if (parentPage !== null && existing.parent === null) {
+                existing.parent = parentPage;
+                const parentNode = this.nodes.get(parentPage);
+                if (parentNode && !parentNode.children.includes(pageNum)) {
+                    parentNode.children.push(pageNum);
+                }
+            }
+            this.draw();
+            return;
+        }
 
         const node = {
             page: pageNum,
@@ -726,7 +741,6 @@ class BTreeVisualizer {
         const nodeInternalColor = this.colors.nodeInternal;
         const nodeHighlightColor = this.colors.nodeHighlight;
         const borderColor = this.colors.border;
-        const textColor = 'white';
 
         // Draw nodes - batch by color to minimize fillStyle changes
         const leafNodes = [];
@@ -743,52 +757,93 @@ class BTreeVisualizer {
             }
         });
 
-        // Helper to draw multiple nodes of same color
-        const drawNodesBatch = (nodes, fillColor) => {
-            this.ctx.fillStyle = fillColor;
-            this.ctx.strokeStyle = borderColor;
-            this.ctx.lineWidth = 2;
-            this.ctx.font = 'bold 12px sans-serif';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'top';
-
-            nodes.forEach(node => {
-                // Draw rounded rectangle
-                this.roundRect(node.x, node.y, this.nodeWidth, this.nodeHeight, 8);
-                this.ctx.fill();
-                this.ctx.stroke();
-
-                // Page number
-                this.ctx.fillText(
-                    `Page ${node.page}`,
-                    node.x + this.nodeWidth / 2,
-                    node.y + 8
-                );
-
-                // Type label
-                this.ctx.font = '10px sans-serif';
-                this.ctx.fillText(
-                    node.type === 1 ? 'LEAF' : 'INTERIOR',
-                    node.x + this.nodeWidth / 2,
-                    node.y + 35
-                );
-
-                // Cell count
-                this.ctx.fillText(
-                    `${node.cells.length} cells`,
-                    node.x + this.nodeWidth / 2,
-                    node.y + 50
-                );
-
-                // Reset font for next iteration
-                this.ctx.font = 'bold 12px sans-serif';
-            });
+        // Determine node info
+        const getNodeInfo = (node) => {
+            const isLeaf = node.type === 1;
+            const typeLabel = isLeaf ? 'LEAF TABLE' : 'INTERIOR';
+            const accentColor = this.highlightedNodes.has(node.page) ? nodeHighlightColor : (isLeaf ? nodeLeafColor : nodeInternalColor);
+            const headerBg = accentColor;
+            const bodyBg = 'white';
+            const textColor = '#1e293b';
+            const mutedText = '#64748b';
+            return { isLeaf, typeLabel, accentColor, headerBg, bodyBg, textColor, mutedText };
         };
 
-        // Draw nodes by color batches (fewer context state changes)
-        drawNodesBatch(internalNodes, nodeInternalColor);
-        drawNodesBatch(leafNodes, nodeLeafColor);
-        drawNodesBatch(highlightedNodes, nodeHighlightColor);
+        // Draw a single rich node
+        const drawRichNode = (node) => {
+            const info = getNodeInfo(node);
+            const x = node.x;
+            const y = node.y;
+            const w = this.nodeWidth;
+            const h = this.nodeHeight;
+            const headerH = 28;
+
+            // Shadow
+            this.ctx.save();
+            this.ctx.shadowColor = 'rgba(0,0,0,0.15)';
+            this.ctx.shadowBlur = 8;
+            this.ctx.shadowOffsetX = 2;
+            this.ctx.shadowOffsetY = 3;
+
+            // Card background (white body)
+            this.roundRect(x, y, w, h, 8);
+            this.ctx.fillStyle = info.bodyBg;
+            this.ctx.fill();
+            this.ctx.restore();
+
+            // Header bar (colored)
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.moveTo(x + 8, y);
+            this.ctx.lineTo(x + w - 8, y);
+            this.ctx.quadraticCurveTo(x + w, y, x + w, y + 8);
+            this.ctx.lineTo(x + w, y + headerH);
+            this.ctx.lineTo(x, y + headerH);
+            this.ctx.lineTo(x, y + 8);
+            this.ctx.quadraticCurveTo(x, y, x + 8, y);
+            this.ctx.closePath();
+            this.ctx.fillStyle = info.headerBg;
+            this.ctx.fill();
+            this.ctx.restore();
+
+            // Border
+            this.roundRect(x, y, w, h, 8);
+            this.ctx.strokeStyle = borderColor;
+            this.ctx.lineWidth = 1.5;
+            this.ctx.stroke();
+
+            // Header text: "Page N"
+            this.ctx.fillStyle = 'white';
+            this.ctx.font = 'bold 12px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(`Page ${node.page}`, x + w / 2, y + headerH / 2);
+
+            // Body: type label
+            this.ctx.fillStyle = info.mutedText;
+            this.ctx.font = '11px sans-serif';
+            this.ctx.fillText(info.typeLabel, x + w / 2, y + headerH + 14);
+
+            // Body: cell count
+            const cellCount = node.cells.length;
+            this.ctx.fillStyle = info.textColor;
+            this.ctx.font = 'bold 11px sans-serif';
+            this.ctx.fillText(`${cellCount} cell${cellCount !== 1 ? 's' : ''}`, x + w / 2, y + headerH + 32);
+
+            // Body: key hints if cells exist
+            if (cellCount > 0) {
+                this.ctx.fillStyle = info.accentColor;
+                this.ctx.font = '10px sans-serif';
+                const keys = node.cells.slice(0, 3).map(c => c.key).join(', ');
+                const suffix = cellCount > 3 ? '...' : '';
+                this.ctx.fillText(`keys: ${keys}${suffix}`, x + w / 2, y + headerH + 48);
+            }
+        };
+
+        // Draw all nodes
+        internalNodes.forEach(n => drawRichNode(n));
+        leafNodes.forEach(n => drawRichNode(n));
+        highlightedNodes.forEach(n => drawRichNode(n));
 
         // Update page count (throttled)
         if (!this._pageCountThrottled) {
