@@ -1360,49 +1360,57 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
-        // Draw title
-        this.ctx.fillStyle = this.colors.text;
-        this.ctx.font = 'bold 16px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'top';
-        this.ctx.fillText('SQL Parse Tree', width / 2, 30);
-
         // Show waiting message if no SQL yet
         if (waiting || !this.currentSQL) {
+            this.ctx.fillStyle = this.colors.text;
+            this.ctx.font = 'bold 16px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('SQL Parse Tree', width / 2, height / 2 - 40);
             this.ctx.font = '14px sans-serif';
             this.ctx.fillStyle = this.colors.textLight;
-            this.ctx.fillText('Execute a SQL query to see its parse tree structure', width / 2, height / 2 - 20);
-
+            this.ctx.fillText('Execute a SQL query to see its parse tree structure', width / 2, height / 2);
             this.ctx.font = '13px monospace';
             this.ctx.fillStyle = '#94a3b8';
-            this.ctx.fillText('Example: SELECT id, name FROM users;', width / 2, height / 2 + 20);
+            this.ctx.fillText('Example: SELECT id, name FROM users;', width / 2, height / 2 + 30);
             return;
         }
 
-        // Draw SQL with truncation if too long
-        this.ctx.font = '14px monospace';
+        // Title + SQL
+        this.ctx.fillStyle = this.colors.text;
+        this.ctx.font = 'bold 14px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'top';
+        this.ctx.fillText('SQL Parse Tree', width / 2, 12);
+
+        this.ctx.font = '12px monospace';
         this.ctx.fillStyle = this.colors.textLight;
-        const maxSqlLength = 80;
-        const displaySQL = this.currentSQL.length > maxSqlLength
-            ? this.currentSQL.substring(0, maxSqlLength) + '...'
+        const displaySQL = this.currentSQL.length > 80
+            ? this.currentSQL.substring(0, 77) + '...'
             : this.currentSQL;
-        this.ctx.fillText(displaySQL, width / 2, 60);
+        this.ctx.fillText(displaySQL, width / 2, 34);
 
-        // Draw tree (only if it exists and we have space)
-        if (this.parseTree && height > 200) {
-            this.drawTreeNode(this.parseTree, width / 2, 100, 0);
-        }
-
-        // Draw tokens with viewport optimization
+        // Draw tokens directly below title
         if (this.parseTokens.length > 0) {
             this.drawParseTokens();
         }
 
-        // Draw status
-        this.ctx.font = '12px sans-serif';
+        // Draw tree if it exists (below tokens or in remaining space)
+        if (this.parseTree) {
+            // Calculate how much space tokens used
+            const tokenAreaBottom = this.parseTokens.length > 0
+                ? Math.min(100 + Math.ceil(this.parseTokens.length / Math.floor((width - 40) / 155)) * 35 + 20, height * 0.5)
+                : 60;
+            if (tokenAreaBottom < height - 100) {
+                this.drawTreeNode(this.parseTree, width / 2, tokenAreaBottom + 50, 0);
+            }
+        }
+
+        // Status
+        this.ctx.font = '11px sans-serif';
         this.ctx.fillStyle = '#10b981';
         this.ctx.textBaseline = 'bottom';
-        this.ctx.fillText('Parse Complete', width / 2, height - 20);
+        this.ctx.fillText(`${this.parseTokens.length} tokens parsed`, width / 2, height - 10);
     }
 
     /**
@@ -1464,9 +1472,9 @@ class BTreeVisualizer {
         const width = this._canvasWidth || this.canvas.clientWidth;
         const height = this._canvasHeight || this.canvas.clientHeight;
 
-        const startY = 400;
+        const startY = 60;  // Start right after SQL text
         const tokenWidth = 150;
-        const tokenHeight = 30;
+        const tokenHeight = 28;
         const tokenGap = 5;
 
         // Check if we have space to draw tokens
@@ -1634,14 +1642,15 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
-        // Draw title and state
+        // Draw title and state (compact)
         this.ctx.fillStyle = this.colors.text;
-        this.ctx.font = 'bold 16px sans-serif';
+        this.ctx.font = 'bold 13px sans-serif';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText('VDBE Program Execution', width / 2, 30);
-        this.ctx.font = '14px sans-serif';
-        this.ctx.fillText(`${state} - ${info}`, width / 2, 55);
+        this.ctx.fillText('VDBE Program Execution', width / 2, 12);
+        this.ctx.font = '11px sans-serif';
+        this.ctx.fillStyle = this.colors.textLight;
+        this.ctx.fillText(`${state} — ${info}`, width / 2, 30);
 
         // If we have individual opcodes, draw them
         if (this.vdbeOpcodes.length > 0) {
@@ -1662,7 +1671,7 @@ class BTreeVisualizer {
 
         const resultNames = { 0: 'OK', 100: 'ROW', 101: 'DONE' };
         const lineHeight = 24;
-        const startY = 85;
+        const startY = 55;
         const maxRows = Math.floor((height - startY - 40) / lineHeight);
         const totalTraces = vdbeStarts.length;
 
@@ -1713,8 +1722,8 @@ class BTreeVisualizer {
     }
 
     _drawVdbeOpcodes(width, height) {
-        const startY = 90;
-        const lineHeight = 28;
+        const startY = 50;
+        const lineHeight = 24;
         const padding = 40;
         const availableHeight = height - startY - padding;
         const maxVisibleOpcodes = Math.floor(availableHeight / lineHeight);
