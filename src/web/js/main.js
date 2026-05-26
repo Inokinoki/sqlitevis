@@ -581,17 +581,25 @@ class SQLiteVisApp {
                 return { error: 'Step error: ' + firstStep };
             }
 
-            // Probe column count by reading consecutive non-null column_text values.
-            // Pre-built WASM lacks sqlite3_column_count, so we detect by probing.
-            // Works correctly when result columns have non-NULL values.
-            const MAX_PROBE = 20;
-            let colCount = 0;
+            // Use sqlite3_column_count (available in rebuilt WASM)
+            const colCount = mod._sqlite3_column_count(stmt);
+            if (colCount <= 0) {
+                mod._sqlite3_finalize(stmt);
+                return { table: '<table></table>' };
+            }
+
+            // Get column names
+            const colNames = [];
+            for (let i = 0; i < colCount; i++) {
+                const namePtr = mod._sqlite3_column_name(stmt, i);
+                colNames.push(namePtr ? mod.UTF8ToString(namePtr) : 'col' + (i + 1));
+            }
+
+            // Read first row
             const firstRow = [];
-            for (let i = 0; i < MAX_PROBE; i++) {
+            for (let i = 0; i < colCount; i++) {
                 const ptr = mod._sqlite3_column_text(stmt, i);
-                if (ptr === 0) break;
-                firstRow.push(mod.UTF8ToString(ptr));
-                colCount = i + 1;
+                firstRow.push(ptr === 0 ? null : mod.UTF8ToString(ptr));
             }
 
             const rows = [firstRow];
@@ -613,13 +621,6 @@ class SQLiteVisApp {
             }
 
             mod._sqlite3_finalize(stmt);
-
-            if (colCount === 0) {
-                return { table: '<table></table>' };
-            }
-
-            const colNames = [];
-            for (let i = 0; i < colCount; i++) colNames.push('col' + (i + 1));
             return { table: this._buildTable(colNames, rows) };
         } catch (error) {
             return { error: error.message };
