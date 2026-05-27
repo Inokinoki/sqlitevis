@@ -171,7 +171,8 @@ class SQLiteVisApp {
 
         eventManager.on(4, (e) => { // BTREE_SPLIT
             if (this.visualizer) {
-                this.visualizer.splitPage(e.data.originalPage, e.data.newPage, e.data.splitCell);
+                const { originalPage, newPage, splitCell, type } = e.data;
+                this.visualizer.splitPage(originalPage, newPage, splitCell, type);
             }
         });
 

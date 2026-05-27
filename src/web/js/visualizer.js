@@ -493,24 +493,38 @@ class BTreeVisualizer {
      * When a page splits, the new page is a sibling of the original
      * (they share the same parent)
      */
-    splitPage(originalPage, newPage, splitCell) {
+    splitPage(originalPage, newPage, splitCell, splitType = 1) {
         const original = this.nodes.get(originalPage);
-        if (!original) return;
 
-        // Create new page with the same parent as the original
-        // This establishes the proper sibling relationship
-        this.addPage(newPage, original.type, original.parent);
-        const newNode = this.nodes.get(newPage);
+        if (splitType === 2) {
+            // balance_deeper: root page splits, tree grows one level deeper.
+            // originalPage (root) becomes interior node, newPage gets old content.
+            // originalPage.children now includes newPage.
+            if (original) {
+                original.cells = [];
+                original.type = 0; // interior
+                if (!original.children.includes(newPage)) {
+                    original.children.push(newPage);
+                }
+            }
+            // Create the child page that holds the old root content
+            this.addPage(newPage, 1, originalPage);
+        } else {
+            // balance_quick: sibling split. New page is a sibling of original.
+            if (!original) return;
+            this.addPage(newPage, original.type, original.parent);
+            const newNode = this.nodes.get(newPage);
 
-        // Move cells
-        const cellsToMove = original.cells.splice(splitCell);
-        newNode.cells = cellsToMove;
+            // Move cells from split point onward
+            const cellsToMove = original.cells.splice(splitCell);
+            newNode.cells = cellsToMove;
 
-        // If the original had a parent, make sure the new page is also a child
-        if (original.parent !== null) {
-            const parentNode = this.nodes.get(original.parent);
-            if (parentNode && !parentNode.children.includes(newPage)) {
-                parentNode.children.push(newPage);
+            // Add new page as sibling (same parent)
+            if (original.parent !== null) {
+                const parentNode = this.nodes.get(original.parent);
+                if (parentNode && !parentNode.children.includes(newPage)) {
+                    parentNode.children.push(newPage);
+                }
             }
         }
 
