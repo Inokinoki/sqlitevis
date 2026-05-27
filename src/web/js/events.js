@@ -58,13 +58,15 @@ class EventManager {
      * Events are routed by type: 0-7 btree, 8-10 parse, 11-13 vdbe
      */
     handleEvent(eventType, dataJson) {
-        // Throttle DOM logging for VDBE opcodes (very high frequency)
+        // Throttle DOM logging for high-frequency events
         let skipDomLog = false;
         if (eventType === 12) { // VDBE_OPCODE
             this._vdbeOpcodeCount = (this._vdbeOpcodeCount || 0) + 1;
             if (this._vdbeOpcodeCount % 10 !== 0) {
                 skipDomLog = true;
             }
+        } else if (eventType === 9) { // PARSE_TOKEN - very high frequency, skip DOM
+            skipDomLog = true;
         }
 
         try {
