@@ -16,7 +16,7 @@ class SQLiteVisApp {
      */
     async init() {
         try {
-            this.updateStatus('Initializing SQLite WebAssembly...');
+            this.updateStatus(I18N.t('status.initializing'));
 
             // Connect event manager to visualizer setup (lazy load visualizer later)
             this.setupEventHandlers();
@@ -33,12 +33,12 @@ class SQLiteVisApp {
             // Lazy load visualizer only when canvas is visible
             this.setupLazyVisualizer();
 
-            this.updateStatus('Ready');
+            this.updateStatus(I18N.t('status.ready'));
             this.hideLoading();
 
         } catch (error) {
             console.error('Initialization error:', error);
-            this.updateStatus('Error: ' + error.message);
+            this.updateStatus(I18N.t('status.error') + ': ' + error.message);
             this.hideLoading();
         }
     }
@@ -305,14 +305,14 @@ class SQLiteVisApp {
     stepThroughSQL() {
         const sql = document.getElementById('sql-input').value.trim();
         if (!sql) {
-            this.showOutput('Please enter SQL to step through', 'error');
+            this.showOutput(I18N.t('error.noSqlStep'), 'error');
             return;
         }
 
         const statements = this._splitStatements(sql).map(s => s.trim()).filter(s => s);
 
         if (statements.length === 0) {
-            this.showOutput('No SQL statements found', 'error');
+            this.showOutput(I18N.t('error.noStatements'), 'error');
             return;
         }
 
@@ -320,12 +320,12 @@ class SQLiteVisApp {
         if (typeof this._stepIndex === 'undefined') this._stepIndex = 0;
         if (this._stepIndex >= statements.length) {
             this._stepIndex = 0;
-            this.showOutput('All statements executed. Starting from beginning.', 'text');
+            this.showOutput(I18N.t('step.allDone'), 'text');
             eventManager.clear();
         }
 
         const stmt = statements[this._stepIndex];
-        this.showOutput(`Step ${this._stepIndex + 1}/${statements.length}: ${stmt}`, 'text');
+        this.showOutput(I18N.t('step.progress', this._stepIndex + 1, statements.length, stmt), 'text');
         this.executeRealSQL(stmt + ';');
         this._stepIndex++;
     }
@@ -336,20 +336,20 @@ class SQLiteVisApp {
     executeSQL() {
         const sql = document.getElementById('sql-input').value.trim();
         if (!sql) {
-            this.showOutput('Please enter SQL to execute', 'error');
+            this.showOutput(I18N.t('error.noSql'), 'error');
             return;
         }
 
         this.clearOutput();
-        this.updateStatus('Executing SQL...');
+        this.updateStatus(I18N.t('status.executing'));
 
         try {
             // Execute real SQL with WASM
             this.executeRealSQL(sql);
 
         } catch (error) {
-            this.showOutput('Error: ' + error.message, 'error');
-            this.updateStatus('Error');
+            this.showOutput(I18N.t('status.error') + ': ' + error.message, 'error');
+            this.updateStatus(I18N.t('status.error'));
         }
     }
 
@@ -358,7 +358,7 @@ class SQLiteVisApp {
      */
     executeRealSQL(sql) {
         if (!this.db || !this.sqliteModule) {
-            this.showOutput('Database not initialized', 'error');
+            this.showOutput(I18N.t('error.noDb'), 'error');
             return;
         }
 
@@ -372,11 +372,11 @@ class SQLiteVisApp {
             lastOutput = this._executeOne(stmt.trim());
             if (lastOutput && lastOutput.error) {
                 this.showHTMLOutput(
-                    `<div style="color:var(--danger-color);font-weight:600">SQL Error</div>` +
+                    `<div style="color:var(--danger-color);font-weight:600">${I18N.t('output.errorPrefix')}</div>` +
                     `<div style="color:var(--text-secondary);margin:4px 0;font-family:monospace;font-size:13px;background:var(--bg-tertiary);padding:6px 10px;border-radius:4px">${this._escapeHtml(stmt.trim())}</div>` +
                     `<div style="color:var(--danger-color)">${this._escapeHtml(lastOutput.error)}</div>`
                 );
-                this.updateStatus('Error');
+                this.updateStatus(I18N.t('status.error'));
                 return;
             }
         }
@@ -390,7 +390,7 @@ class SQLiteVisApp {
         // Rebuild page-to-table mapping after execution (tables may have been created)
         this._buildPageToTableMap();
 
-        this.updateStatus('Ready');
+        this.updateStatus(I18N.t('status.ready'));
     }
 
     _splitStatements(sql) {
@@ -467,7 +467,7 @@ class SQLiteVisApp {
                 return { table: this._buildTable(resultColumns, resultRows) };
             }
 
-            return { message: 'SQL executed successfully' };
+            return { message: I18N.t('output.success') };
         } catch (error) {
             return { error: error.message };
         }
@@ -571,13 +571,13 @@ class SQLiteVisApp {
      * Query actual row data for a node by rowid
      */
     queryNodeData(pageNum, rowids) {
-        if (!rowids || !rowids.length) return { error: 'No rowids' };
+        if (!rowids || !rowids.length) return { error: I18N.t('error.noRowids') };
 
         const rootPage = this._findRootPageForNode(pageNum);
-        if (!rootPage) return { error: 'Cannot determine table for page ' + pageNum };
+        if (!rootPage) return { error: I18N.t('error.noTable', pageNum) };
 
         if (!this._pageToTable || !this._pageToTable.has(rootPage)) {
-            return { error: 'Unknown table for root page ' + rootPage };
+            return { error: I18N.t('error.unknownTable', rootPage) };
         }
 
         const tableName = this._pageToTable.get(rootPage);
@@ -624,7 +624,7 @@ class SQLiteVisApp {
         // Add placeholder
         const placeholder = document.createElement('p');
         placeholder.className = 'placeholder';
-        placeholder.textContent = 'Results will appear here...';
+        placeholder.textContent = I18N.t('output.placeholder');
         outputDiv.appendChild(placeholder);
 
         // Clear visualizer state for fresh execution

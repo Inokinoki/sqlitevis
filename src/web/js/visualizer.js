@@ -776,7 +776,7 @@ class BTreeVisualizer {
         // Determine node info
         const getNodeInfo = (node) => {
             const isLeaf = node.type === 1;
-            const typeLabel = isLeaf ? 'LEAF' : 'INT';
+            const typeLabel = isLeaf ? I18N.t('btree.leaf') : I18N.t('btree.int');
             const accentColor = this.highlightedNodes.has(node.page) ? nodeHighlightColor : (isLeaf ? nodeLeafColor : nodeInternalColor);
             return { isLeaf, typeLabel, accentColor };
         };
@@ -853,7 +853,7 @@ class BTreeVisualizer {
                 this.ctx.fillStyle = '#94a3b8';
                 this.ctx.font = '9px sans-serif';
                 this.ctx.textAlign = 'center';
-                const label = node.parent !== null && node.parent !== undefined ? 'after split' : 'empty';
+                const label = node.parent !== null && node.parent !== undefined ? I18N.t('btree.afterSplit') : I18N.t('btree.empty');
                 this.ctx.fillText(label, x + w / 2, cy);
             }
         };
@@ -930,6 +930,9 @@ class BTreeVisualizer {
         const infoPanel = document.getElementById('node-info');
         if (!infoPanel) return;
 
+        this._lastHoveredNode = node;
+        if (!infoPanel) return;
+
         infoPanel.classList.remove('hidden');
 
         const detailsDiv = document.getElementById('node-details');
@@ -953,11 +956,11 @@ class BTreeVisualizer {
             };
 
             // Set static labels
-            this._nodeInfoCache.dtPage.textContent = 'Page Number:';
-            this._nodeInfoCache.dtType.textContent = 'Type:';
-            this._nodeInfoCache.dtCells.textContent = 'Cells:';
-            this._nodeInfoCache.dtChildren.textContent = 'Children:';
-            this._nodeInfoCache.cellTitle.textContent = 'Cells:';
+            this._nodeInfoCache.dtPage.textContent = I18N.t('nodeInfo.page');
+            this._nodeInfoCache.dtType.textContent = I18N.t('nodeInfo.type');
+            this._nodeInfoCache.dtCells.textContent = I18N.t('nodeInfo.cells');
+            this._nodeInfoCache.dtChildren.textContent = I18N.t('nodeInfo.children');
+            this._nodeInfoCache.cellTitle.textContent = I18N.t('nodeInfo.cellsTitle');
 
             // Build structure
             const dl = this._nodeInfoCache.dl;
@@ -981,7 +984,7 @@ class BTreeVisualizer {
 
         // Update values (much faster than innerHTML)
         this._nodeInfoCache.ddPage.textContent = node.page;
-        this._nodeInfoCache.ddType.textContent = node.type === 1 ? 'Leaf' : 'Interior';
+        this._nodeInfoCache.ddType.textContent = node.type === 1 ? I18N.t('nodeInfo.leaf') : I18N.t('nodeInfo.interior');
         this._nodeInfoCache.ddCells.textContent = node.cells.length;
         this._nodeInfoCache.ddChildren.textContent = node.children.length;
 
@@ -998,28 +1001,28 @@ class BTreeVisualizer {
             for (let i = 0; i < maxCells; i++) {
                 const c = node.cells[i];
                 const cellDiv = document.createElement('div');
-                cellDiv.textContent = `Cell ${c.idx}: ${c.key} (${c.keyLen} bytes)`;
+                cellDiv.textContent = I18N.t('cell.display', c.idx, c.key, c.keyLen);
                 this._nodeInfoCache.cellDiv.appendChild(cellDiv);
             }
             if (node.cells.length > 10) {
                 const moreDiv = document.createElement('div');
-                moreDiv.textContent = `... and ${node.cells.length - 10} more`;
+                moreDiv.textContent = I18N.t('cell.more', node.cells.length - 10);
                 moreDiv.style.fontStyle = 'italic';
                 this._nodeInfoCache.cellDiv.appendChild(moreDiv);
             }
         } else {
             const noCells = document.createElement('em');
-            noCells.textContent = 'No cells';
+            noCells.textContent = I18N.t('nodeInfo.noCells');
             this._nodeInfoCache.cellDiv.appendChild(noCells);
         }
 
         // Add "View Row Data" button for leaf nodes with cells
         if (node.type === 1 && node.cells.length > 0 && this.onQueryNodeData) {
             const btn = document.createElement('button');
-            btn.textContent = 'View Row Data';
+            btn.textContent = I18N.t('nodeInfo.viewData');
             btn.className = 'btn-view-data';
             btn.onclick = async () => {
-                btn.textContent = 'Loading...';
+                btn.textContent = I18N.t('nodeInfo.loading');
                 btn.disabled = true;
                 const rowids = node.cells.map(c => c.key);
                 try {
@@ -1028,7 +1031,7 @@ class BTreeVisualizer {
                 } catch (e) {
                     this.showNodeData(node, { error: e.message });
                 }
-                btn.textContent = 'View Row Data';
+                btn.textContent = I18N.t('nodeInfo.viewData');
                 btn.disabled = false;
             };
             this._nodeInfoCache.cellDiv.appendChild(btn);
@@ -1060,7 +1063,7 @@ class BTreeVisualizer {
         }
 
         if (!result.columns || !result.rows || result.rows.length === 0) {
-            dataDiv.innerHTML = '<div style="color:var(--text-secondary);margin-top:8px;font-style:italic">No rows found</div>';
+            dataDiv.innerHTML = '<div style="color:var(--text-secondary);margin-top:8px;font-style:italic">' + I18N.t('nodeInfo.noRows') + '</div>';
             return;
         }
 
@@ -1242,13 +1245,22 @@ class BTreeVisualizer {
             this.drawParseTree(!this.currentSQL);  // only show waiting if no SQL data
         } else if (mode === 'vdbe') {
             if (this.vdbeOpcodes.some(o => o)) {
-                this.drawVdbeList('Complete', `Total opcodes: ${this.vdbeOpcodes.filter(o => o).length}`);
+                this.drawVdbeList(I18N.t('vdbe.state.complete'), I18N.t('vdbe.totalOpcodes', this.vdbeOpcodes.filter(o => o).length));
             } else {
-                this.drawVdbeList('Idle', 'Execute SQL to see VDBE execution');
+                this.drawVdbeList(I18N.t('vdbe.state.idle'), I18N.t('vdbe.idle'));
             }
         } else {
             // B-tree mode
             this.draw();
+        }
+    }
+
+    onViewChanged() {
+        this.setViewMode(this.viewMode);
+        // Update node info labels if visible
+        const infoPanel = document.getElementById('node-info');
+        if (infoPanel && !infoPanel.classList.contains('hidden') && this._lastHoveredNode) {
+            this.showNodeInfo(this._lastHoveredNode);
         }
     }
 
@@ -1300,13 +1312,13 @@ class BTreeVisualizer {
                 info.textContent = '';
             } else {
                 const op = this.vdbeOpcodes[this.vdbeStepIndex];
-                info.textContent = `Step ${pos}/${validPcs.length}: [${op.pc}] ${op.opcode}`;
+                info.textContent = I18N.t('vdbe.stepInfo', pos, validPcs.length, op.pc, op.opcode);
             }
         }
 
         // Redraw with step highlight
-        this.drawVdbeList('Stepping', this.vdbeStepIndex >= 0
-            ? `Opcode ${pos} of ${validPcs.length}` : 'Ready');
+        this.drawVdbeList(I18N.t('vdbe.state.stepping'), this.vdbeStepIndex >= 0
+            ? I18N.t('vdbe.opcodeOf', pos, validPcs.length) : I18N.t('vdbe.ready'));
     }
 
     /**
@@ -1693,13 +1705,13 @@ class BTreeVisualizer {
             this.ctx.font = 'bold 16px sans-serif';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText('SQL Parse Tree', width / 2, height / 2 - 40);
+            this.ctx.fillText(I18N.t('parse.titleWaiting'), width / 2, height / 2 - 40);
             this.ctx.font = '14px sans-serif';
             this.ctx.fillStyle = this.colors.textLight;
-            this.ctx.fillText('Execute a SQL query to see its AST', width / 2, height / 2);
+            this.ctx.fillText(I18N.t('parse.waiting'), width / 2, height / 2);
             this.ctx.font = '13px monospace';
             this.ctx.fillStyle = '#94a3b8';
-            this.ctx.fillText('Example: SELECT id, name FROM users WHERE age > 18;', width / 2, height / 2 + 30);
+            this.ctx.fillText(I18N.t('parse.example'), width / 2, height / 2 + 30);
             return;
         }
 
@@ -1708,7 +1720,7 @@ class BTreeVisualizer {
         this.ctx.font = 'bold 13px sans-serif';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText('SQL Abstract Syntax Tree', width / 2, 10);
+        this.ctx.fillText(I18N.t('parse.title'), width / 2, 10);
 
         // SQL text (truncated)
         this.ctx.font = '11px monospace';
@@ -1733,7 +1745,7 @@ class BTreeVisualizer {
         this.ctx.fillStyle = '#10b981';
         this.ctx.textBaseline = 'bottom';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`${this.parseTokens.length} tokens parsed | ${this.parseTree.children.length} statement(s)`, width / 2, height - 8);
+        this.ctx.fillText(I18N.t('parse.stats', this.parseTokens.length, this.parseTree.children.length), width / 2, height - 8);
     }
 
     /**
@@ -1912,7 +1924,7 @@ class BTreeVisualizer {
         const info = document.getElementById('vdbe-step-info');
         if (info) info.textContent = '';
         if (this.viewMode === 'vdbe') {
-            this.drawVdbeList('Program starting', `Expected ${numOpcodes} opcodes`);
+            this.drawVdbeList(I18N.t('vdbe.state.starting'), I18N.t('vdbe.expected', numOpcodes));
         }
     }
 
@@ -1947,7 +1959,7 @@ class BTreeVisualizer {
             this._vdbeDrawScheduled = true;
             requestAnimationFrame(() => {
                 if (this._vdbeDrawPending) {
-                    this.drawVdbeList('Executing', `Opcode ${this.vdbeCurrentPc + 1} of ${this.vdbeOpcodes.length}`);
+                    this.drawVdbeList(I18N.t('vdbe.state.executing'), I18N.t('vdbe.opcodeOf', this.vdbeCurrentPc + 1, this.vdbeOpcodes.length));
                     this._vdbeDrawPending = false;
                 }
                 this._vdbeDrawScheduled = false;
@@ -1960,7 +1972,7 @@ class BTreeVisualizer {
      */
     showVdbeComplete(resultCode) {
         if (this.viewMode === 'vdbe') {
-            this.drawVdbeList('Complete', `Result code: ${resultCode}`);
+            this.drawVdbeList(I18N.t('vdbe.state.complete'), I18N.t('vdbe.resultCode', resultCode));
         }
     }
 
@@ -1982,7 +1994,7 @@ class BTreeVisualizer {
         this.ctx.font = 'bold 13px sans-serif';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText('VDBE Program Execution', width / 2, 12);
+        this.ctx.fillText(I18N.t('vdbe.title'), width / 2, 12);
         this.ctx.font = '11px sans-serif';
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.fillText(`${state} — ${info}`, width / 2, 30);
@@ -1997,7 +2009,7 @@ class BTreeVisualizer {
         if (typeof eventManager === 'undefined') {
             this.ctx.fillStyle = this.colors.textLight;
             this.ctx.font = '13px sans-serif';
-            this.ctx.fillText('Execute SQL to see VDBE execution trace', width / 2, height / 2);
+            this.ctx.fillText(I18N.t('vdbe.waiting'), width / 2, height / 2);
             return;
         }
 
@@ -2015,7 +2027,7 @@ class BTreeVisualizer {
 
         // Draw header
         this.ctx.fillStyle = this.colors.textLight;
-        this.ctx.fillText('Program                Opcodes  Result', 40, startY - 5);
+        this.ctx.fillText(I18N.t('vdbe.programHeader'), 40, startY - 5);
         this.ctx.fillStyle = '#4a5568';
         this.ctx.fillRect(40, startY, width - 80, 1);
 
@@ -2026,7 +2038,7 @@ class BTreeVisualizer {
 
             // Program number
             this.ctx.fillStyle = '#7c3aed';
-            this.ctx.fillText(`Program #${i + 1}`, 40, y);
+            this.ctx.fillText(I18N.t('vdbe.program', i + 1), 40, y);
 
             // Opcode count
             this.ctx.fillStyle = this.colors.textLight;
@@ -2045,7 +2057,7 @@ class BTreeVisualizer {
             this.ctx.fillStyle = this.colors.textLight;
             this.ctx.font = '12px sans-serif';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText(`... and ${totalTraces - maxRows} more programs`, width / 2, startY + 10 + maxRows * lineHeight);
+            this.ctx.fillText(I18N.t('vdbe.morePrograms', totalTraces - maxRows), width / 2, startY + 10 + maxRows * lineHeight);
         }
 
         // Summary at bottom
@@ -2053,7 +2065,7 @@ class BTreeVisualizer {
         this.ctx.font = '12px sans-serif';
         this.ctx.textAlign = 'center';
         const summaryY = height - 30;
-        this.ctx.fillText(`Total: ${totalTraces} programs executed`, width / 2, summaryY);
+        this.ctx.fillText(I18N.t('vdbe.totalPrograms', totalTraces), width / 2, summaryY);
     }
 
     _drawVdbeOpcodes(width, height) {

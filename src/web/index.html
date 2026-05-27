@@ -9,46 +9,52 @@
 <body>
     <div class="container">
         <header>
-            <h1>SQLite B-Tree Visualization</h1>
-            <p class="subtitle">Interactive WebAssembly-powered database internals explorer</p>
+            <div class="header-row">
+                <div>
+                    <h1 data-i18n="app.title">SQLite B-Tree Visualization</h1>
+                    <p class="subtitle" data-i18n="app.subtitle">Interactive WebAssembly-powered database internals explorer</p>
+                </div>
+                <select id="lang-select" class="lang-select" title="Language">
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                    <option value="ja">日本語</option>
+                </select>
+            </div>
         </header>
 
         <div class="main-layout">
             <!-- Left Panel: SQL Editor and Controls -->
             <div class="left-panel">
                 <section class="sql-editor-section">
-                    <h2>SQL Editor</h2>
-                    <textarea id="sql-input" placeholder="Enter SQL commands here...
-Example:
-CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-INSERT INTO users VALUES (1, 'Alice', 30);
-INSERT INTO users VALUES (2, 'Bob', 25);
-SELECT * FROM users;">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+                    <h2 data-i18n="editor.title">SQL Editor</h2>
+                    <textarea id="sql-input" data-i18n-placeholder="editor.placeholder">CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
 INSERT INTO users VALUES (1, 'Alice', 30);
 INSERT INTO users VALUES (2, 'Bob', 25);
 SELECT * FROM users;</textarea>
                     <div class="button-group">
-                        <button id="execute-btn" class="btn btn-primary">Execute SQL</button>
-                        <button id="step-btn" class="btn btn-secondary">Step Through</button>
-                        <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                        <button id="execute-btn" class="btn btn-primary" data-i18n="btn.execute">Execute SQL</button>
+                        <button id="step-btn" class="btn btn-secondary" data-i18n="btn.step">Step Through</button>
+                        <button id="clear-btn" class="btn btn-secondary" data-i18n="btn.clear">Clear</button>
                     </div>
                 </section>
 
                 <section class="output-section">
-                    <h2>Query Results</h2>
+                    <h2 data-i18n="output.title">Query Results</h2>
                     <div id="output" class="output-box">
-                        <p class="placeholder">Results will appear here...</p>
+                        <p class="placeholder" data-i18n="output.placeholder">Results will appear here...</p>
                     </div>
                 </section>
 
                 <section class="events-section">
-                    <h2>Event Log</h2>
+                    <h2 data-i18n="events.title">Event Log</h2>
                     <div class="controls">
                         <label>
                             <input type="checkbox" id="auto-scroll" checked>
-                            Auto-scroll
+                            <span data-i18n="events.autoScroll">Auto-scroll</span>
                         </label>
-                        <button id="clear-events-btn" class="btn btn-small">Clear Log</button>
+                        <button id="clear-events-btn" class="btn btn-small" data-i18n="events.clearLog">Clear Log</button>
                     </div>
                     <div id="event-log" class="event-log"></div>
                 </section>
@@ -57,35 +63,35 @@ SELECT * FROM users;</textarea>
             <!-- Right Panel: Visualization -->
             <div class="right-panel">
                 <section class="visualization-section">
-                    <h2>B-Tree Visualization</h2>
+                    <h2 data-i18n="viz.title">B-Tree Visualization</h2>
                     <div class="viz-controls">
                         <label>
-                            View:
+                            <span data-i18n="viz.view">View:</span>
                             <select id="view-mode">
-                                <option value="btree">B-Tree Structure</option>
-                                <option value="parse">SQL Parse Tree</option>
-                                <option value="vdbe">VDBE Execution</option>
+                                <option value="btree" data-i18n="viz.btree">B-Tree Structure</option>
+                                <option value="parse" data-i18n="viz.parse">SQL Parse Tree</option>
+                                <option value="vdbe" data-i18n="viz.vdbe">VDBE Execution</option>
                             </select>
                         </label>
                         <label>
                             <input type="checkbox" id="show-transitions" checked>
-                            Show Transitions
+                            <span data-i18n="viz.transitions">Show Transitions</span>
                         </label>
                         <label>
-                            Speed:
+                            <span data-i18n="viz.speed">Speed:</span>
                             <input type="range" id="animation-speed" min="0.1" max="2" step="0.1" value="1">
                             <span id="speed-value">1.0x</span>
                         </label>
                     </div>
                     <div id="vdbe-controls" class="vdbe-controls hidden">
-                        <button id="vdbe-reset" class="btn btn-small btn-secondary">Reset</button>
-                        <button id="vdbe-prev" class="btn btn-small btn-secondary">Prev</button>
-                        <button id="vdbe-next" class="btn btn-small btn-primary">Next Opcode</button>
+                        <button id="vdbe-reset" class="btn btn-small btn-secondary" data-i18n="vdbe.reset">Reset</button>
+                        <button id="vdbe-prev" class="btn btn-small btn-secondary" data-i18n="vdbe.prev">Prev</button>
+                        <button id="vdbe-next" class="btn btn-small btn-primary" data-i18n="vdbe.next">Next Opcode</button>
                         <span id="vdbe-step-info" class="vdbe-step-info"></span>
                     </div>
                     <canvas id="visualization-canvas"></canvas>
                     <div id="node-info" class="node-info hidden">
-                        <h3>Node Information</h3>
+                        <h3 data-i18n="nodeInfo.title">Node Information</h3>
                         <div id="node-details"></div>
                     </div>
                 </section>
@@ -94,11 +100,11 @@ SELECT * FROM users;</textarea>
 
         <footer>
             <div class="stats">
-                <span>Status: <span id="db-status">Initializing...</span></span>
+                <span><span data-i18n="status.status">Status:</span> <span id="db-status" data-i18n="status.initializing">Initializing...</span></span>
                 <span>|</span>
-                <span>Events: <span id="event-count">0</span></span>
+                <span><span data-i18n="status.events">Events:</span> <span id="event-count">0</span></span>
                 <span>|</span>
-                <span>Pages: <span id="page-count">0</span></span>
+                <span><span data-i18n="status.pages">Pages:</span> <span id="page-count">0</span></span>
             </div>
         </footer>
     </div>
@@ -106,10 +112,33 @@ SELECT * FROM users;</textarea>
     <!-- Loading overlay -->
     <div id="loading-overlay" class="loading-overlay">
         <div class="spinner"></div>
-        <p>Loading SQLite WebAssembly module...</p>
+        <p data-i18n="loading.message">Loading SQLite WebAssembly module...</p>
     </div>
 
-    <!-- Scripts -->
+    <!-- Scripts (i18n first, so other modules can use I18N.t) -->
+    <script src="js/i18n.js"></script>
+    <script>
+    // Initialize i18n and update DOM before other scripts load
+    I18N.initLang();
+    document.getElementById('lang-select').value = I18N.getLang();
+    I18N.updateDOM();
+    // Update <select> option labels
+    document.querySelectorAll('#view-mode option').forEach(opt => {
+        const key = opt.getAttribute('data-i18n');
+        if (key) opt.textContent = I18N.t(key);
+    });
+    // Language change handler
+    document.getElementById('lang-select').addEventListener('change', (e) => {
+        I18N.setLang(e.target.value);
+        I18N.updateDOM();
+        document.querySelectorAll('#view-mode option').forEach(opt => {
+            const key = opt.getAttribute('data-i18n');
+            if (key) opt.textContent = I18N.t(key);
+        });
+        // Re-render current view
+        if (window.viz) window.viz.onViewChanged();
+    });
+    </script>
     <script src="build/sqlite3.js"></script>
     <script src="js/events.js"></script>
     <script src="js/visualizer.js"></script>
@@ -118,7 +147,7 @@ SELECT * FROM users;</textarea>
     // Graceful fallback if WASM module failed to load
     if (typeof createSQLiteModule === 'undefined') {
         document.getElementById('loading-overlay').style.display = 'none';
-        document.getElementById('db-status').textContent = 'WASM not available — run: make build-wasm';
+        document.getElementById('db-status').textContent = I18N.t('loading.wasmError');
     }
     </script>
 </body>
