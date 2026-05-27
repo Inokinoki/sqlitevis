@@ -249,23 +249,21 @@ class BTreeVisualizer {
      */
     setupCanvas() {
         const resize = () => {
-            const parent = this.canvas.parentElement;
-            if (!parent) return;
-
             const dpr = window.devicePixelRatio || 1;
 
-            // Get parent's dimensions
-            const parentRect = parent.getBoundingClientRect();
-            const width = parentRect.width;
-            const height = parentRect.height;
+            // Use canvas's own CSS layout size (set by flex), not parent.
+            // Using parent.getBoundingClientRect() causes infinite growth:
+            // canvas.style.height = parent.height → parent grows → canvas grows → ...
+            const width = this.canvas.clientWidth;
+            const height = this.canvas.clientHeight;
 
-            // Set canvas display size
-            this.canvas.style.width = width + 'px';
-            this.canvas.style.height = height + 'px';
+            // Skip if dimensions haven't changed
+            if (this.canvas.width === Math.round(width * dpr) &&
+                this.canvas.height === Math.round(height * dpr)) return;
 
-            // Set canvas internal size (for drawing)
-            this.canvas.width = width * dpr;
-            this.canvas.height = height * dpr;
+            // Set canvas internal size (for drawing) — this resets context state
+            this.canvas.width = Math.round(width * dpr);
+            this.canvas.height = Math.round(height * dpr);
 
             // Scale for retina displays
             this.ctx.scale(dpr, dpr);
