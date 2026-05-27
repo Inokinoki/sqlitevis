@@ -1135,9 +1135,13 @@ class BTreeVisualizer {
 
         // Render the appropriate view
         if (mode === 'parse') {
-            this.drawParseTree(true);  // true = waiting for SQL
+            this.drawParseTree(!this.currentSQL);  // only show waiting if no SQL data
         } else if (mode === 'vdbe') {
-            this.drawVdbeList('Idle', 'Execute SQL to see VDBE execution');
+            if (this.vdbeOpcodes.some(o => o)) {
+                this.drawVdbeList('Complete', `Total opcodes: ${this.vdbeOpcodes.filter(o => o).length}`);
+            } else {
+                this.drawVdbeList('Idle', 'Execute SQL to see VDBE execution');
+            }
         } else {
             // B-tree mode
             this.draw();
