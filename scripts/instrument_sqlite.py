@@ -48,7 +48,7 @@ extern void page_allocate_event(int page_num, int page_type);
 extern void page_free_event(int page_num);
 extern void btree_insert_event(int page_num, int cell_idx, int key_len, int root_page);
 extern void btree_delete_event(int page_num, int cell_idx);
-extern void btree_split_event(int original_page, int new_page, int split_cell);
+extern void btree_split_event(int original_page, int new_page, int split_cell, int split_type);
 extern void btree_balance_event(int page_num, int num_cells);
 extern void vdbe_start_event(int num_opcodes);
 extern void vdbe_opcode_event(int pc, const char* opcode, int p1, int p2, int p3);
@@ -334,6 +334,43 @@ extern void parse_complete_event(int success);
     else:
         if btree_delete_idx >= 0:
             print("  └─ btree_delete_event already present")
+
+    # =========================================================================
+    # 14. Instrument balance_quick — btree_split_event
+    #     After successful insertCell (divider inserted into parent).
+    #     pgnoNew is the new sibling page, pPage->pgno is the original.
+    # =========================================================================
+    balance_quick_idx = find_line_number(lines, r'static int balance_quick\(MemPage \*pParent, MemPage \*pPage')
+    if balance_quick_idx >= 0 and not any('btree_split_event' in lines[i] for i in range(balance_quick_idx, min(balance_quick_idx + 100, len(lines)))):
+        # Find "put4byte(&pParent->aData[pParent->hdrOffset+8], pgnoNew);"
+        # This sets the right-child pointer — split is committed at this point
+        put4byte_idx = find_line_number(lines, r'put4byte\(&pParent->aData\[pParent->hdrOffset\+8\], pgnoNew\)', balance_quick_idx)
+        if put4byte_idx >= 0:
+            lines.insert(put4byte_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(put4byte_idx + 2, '    btree_split_event((int)pPage->pgno, (int)pgnoNew, pPage->nCell, 1);')
+            lines.insert(put4byte_idx + 3, '#endif')
+            print(f"  └─ Added btree_split_event (balance_quick) at line {put4byte_idx + 1}")
+    else:
+        if balance_quick_idx >= 0:
+            print("  └─ btree_split_event already present in balance_quick")
+
+    # =========================================================================
+    # 15. Instrument balance_deeper — btree_split_event
+    #     When root page splits into a new level (tree grows deeper).
+    #     Find "*ppChild = pChild;" — the point where the child is returned.
+    # =========================================================================
+    balance_deeper_idx = find_line_number(lines, r'static int balance_deeper\(')
+    if balance_deeper_idx >= 0 and not any('btree_split_event' in lines[i] for i in range(balance_deeper_idx, min(balance_deeper_idx + 150, len(lines)))):
+        # Find "*ppChild = pChild;" — child page successfully created
+        ppchild_idx = find_line_number(lines, r'\*\s*ppChild\s*=\s*pChild\s*;', balance_deeper_idx)
+        if ppchild_idx >= 0:
+            lines.insert(ppchild_idx + 1, '#ifdef EMSCRIPTEN')
+            lines.insert(ppchild_idx + 2, '    btree_split_event((int)pRoot->pgno, (int)pChild->pgno, pRoot->nCell, 2);')
+            lines.insert(ppchild_idx + 3, '#endif')
+            print(f"  └─ Added btree_split_event (balance_deeper) at line {ppchild_idx + 1}")
+    else:
+        if balance_deeper_idx >= 0:
+            print("  └─ btree_split_event already present in balance_deeper")
 
     # Write back
     content = '\n'.join(lines)

@@ -267,7 +267,7 @@ class EventManager {
                 return `page=${data.page}, cell=${data.cell}`;
 
             case 'BTREE_SPLIT':
-                return `original=${data.originalPage} → new=${data.newPage}, split at cell ${data.splitCell}`;
+                return `P${data.originalPage} → P${data.newPage} (${data.type === 2 ? 'root split/deeper' : 'sibling split'}, ${data.splitCell} cells)`;
 
             case 'PAGE_ALLOCATE':
                 return `page ${data.page} (${data.type === 1 ? 'leaf table' : data.type === 2 ? 'interior index' : data.type === 5 ? 'interior table' : data.type === 10 ? 'leaf index' : 'type ' + data.type})`;

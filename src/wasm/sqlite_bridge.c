@@ -69,10 +69,10 @@ void btree_delete_event(int page_num, int cell_idx) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-void btree_split_event(int original_page, int new_page, int split_cell) {
+void btree_split_event(int original_page, int new_page, int split_cell, int split_type) {
     emit_vis_event(EVENT_BTREE_SPLIT,
-        "{\"originalPage\":%d,\"newPage\":%d,\"splitCell\":%d}",
-        original_page, new_page, split_cell);
+        "{\"originalPage\":%d,\"newPage\":%d,\"splitCell\":%d,\"type\":%d}",
+        original_page, new_page, split_cell, split_type);
 }
 
 EMSCRIPTEN_KEEPALIVE
