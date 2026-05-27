@@ -504,6 +504,9 @@ class SQLiteVisApp {
         placeholder.className = 'placeholder';
         placeholder.textContent = 'Results will appear here...';
         outputDiv.appendChild(placeholder);
+
+        // Clear visualizer state for fresh execution
+        if (this.visualizer) this.visualizer.clear();
     }
 
     /**

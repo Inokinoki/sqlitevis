@@ -1116,12 +1116,16 @@ class BTreeVisualizer {
      */
     clear() {
         this.nodes.clear();
+        this.rootPage = null;
+        this.lastAccessedPage = null;
         this.parseTokens = [];
         this.currentSQL = '';
         this.vdbeOpcodes = [];
         this.vdbeCurrentPc = -1;
+        this.vdbeState = '';
         this.animations = [];
         this.highlightedNodes.clear();
+        this._layoutCache.clear();
         this.draw();
     }
 
