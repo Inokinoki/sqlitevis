@@ -1698,12 +1698,14 @@ class BTreeVisualizer {
 
         const normalOpcodes = [];
         const highlightedOpcode = [];
+        let drawRow = 0;
 
         for (let i = viewportStart; i < viewportEnd; i++) {
             const op = this.vdbeOpcodes[i];
             if (!op) continue;
 
-            const y = startY + (i - viewportStart) * lineHeight;
+            const y = startY + drawRow * lineHeight;
+            drawRow++;
             const isCurrent = i === this.vdbeCurrentPc;
 
             const opcodeData = { op, y, index: i };
