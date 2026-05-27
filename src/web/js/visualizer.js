@@ -192,10 +192,10 @@ class BTreeVisualizer {
         };
 
         // Layout
-        this.nodeWidth = 160;
-        this.nodeHeight = 90;
-        this.levelHeight = 140;
-        this.horizontalSpacing = 50;
+        this.nodeWidth = 120;
+        this.nodeHeight = 40;
+        this.levelHeight = 80;
+        this.horizontalSpacing = 30;
 
         // Colors
         this.colors = {
@@ -765,113 +765,79 @@ class BTreeVisualizer {
             return { isLeaf, typeLabel, accentColor };
         };
 
-        // Dynamic node height based on cell count
-        const cellRowH = 16;
-        const headerH = 26;
-        const footerH = 6;
+        // Compact node sizing
+        const headerH = 22;
+        const bodyH = 18;
         const getDynamicHeight = (node) => {
-            const rows = Math.min(node.cells.length, 8);
-            return headerH + 16 + rows * cellRowH + footerH + (node.cells.length > 8 ? 14 : 0);
+            return headerH + bodyH;
         };
 
-        // Draw a single rich node
+        // Draw a single compact node
         const drawRichNode = (node) => {
             const info = getNodeInfo(node);
             const x = node.x;
             const y = node.y;
             const w = this.nodeWidth;
-            const dynH = getDynamicHeight(node);
+            const h = headerH + bodyH;
             const pad = 6;
-            const cellAreaW = w - pad * 2;
 
             // Shadow
             this.ctx.save();
-            this.ctx.shadowColor = 'rgba(0,0,0,0.12)';
-            this.ctx.shadowBlur = 6;
-            this.ctx.shadowOffsetX = 1;
-            this.ctx.shadowOffsetY = 2;
-            this.roundRect(x, y, w, dynH, 6);
+            this.ctx.shadowColor = 'rgba(0,0,0,0.08)';
+            this.ctx.shadowBlur = 4;
+            this.ctx.shadowOffsetY = 1;
+            this.roundRect(x, y, w, h, 5);
             this.ctx.fillStyle = '#ffffff';
             this.ctx.fill();
             this.ctx.restore();
 
-            // Header bar
+            // Header bar (rounded top)
             this.ctx.save();
             this.ctx.beginPath();
-            this.ctx.moveTo(x + 6, y);
-            this.ctx.lineTo(x + w - 6, y);
-            this.ctx.quadraticCurveTo(x + w, y, x + w, y + 6);
+            this.ctx.moveTo(x + 5, y);
+            this.ctx.lineTo(x + w - 5, y);
+            this.ctx.quadraticCurveTo(x + w, y, x + w, y + 5);
             this.ctx.lineTo(x + w, y + headerH);
             this.ctx.lineTo(x, y + headerH);
-            this.ctx.lineTo(x, y + 6);
-            this.ctx.quadraticCurveTo(x, y, x + 6, y);
+            this.ctx.lineTo(x, y + 5);
+            this.ctx.quadraticCurveTo(x, y, x + 5, y);
             this.ctx.closePath();
             this.ctx.fillStyle = info.accentColor;
             this.ctx.fill();
             this.ctx.restore();
 
             // Border
-            this.roundRect(x, y, w, dynH, 6);
+            this.roundRect(x, y, w, h, 5);
             this.ctx.strokeStyle = '#e2e8f0';
             this.ctx.lineWidth = 1;
             this.ctx.stroke();
 
-            // Header text
+            // Header: "Page N · LEAF/INT"
             this.ctx.fillStyle = 'white';
-            this.ctx.font = 'bold 11px sans-serif';
+            this.ctx.font = 'bold 10px sans-serif';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(`Page ${node.page}  ·  ${info.typeLabel}`, x + w / 2, y + headerH / 2);
+            this.ctx.fillText(`P${node.page} ${info.typeLabel}`, x + w / 2, y + headerH / 2);
 
-            // Cell count summary
+            // Body: compact key range + count
+            const cy = y + headerH + bodyH / 2;
             const cellCount = node.cells.length;
-            let cy = y + headerH + 10;
-            this.ctx.fillStyle = '#475569';
-            this.ctx.font = 'bold 10px sans-serif';
-            this.ctx.textAlign = 'left';
-            this.ctx.fillText(`${cellCount} cell${cellCount !== 1 ? 's' : ''}`, x + pad, cy);
-
-            // Key range on right
             if (cellCount > 0) {
                 const keys = node.cells.map(c => parseInt(c.key)).filter(k => !isNaN(k)).sort((a, b) => a - b);
                 if (keys.length > 0) {
+                    this.ctx.fillStyle = '#334155';
+                    this.ctx.font = '9px monospace';
+                    this.ctx.textAlign = 'left';
+                    this.ctx.fillText(`${keys[0]}..${keys[keys.length - 1]}`, x + pad, cy);
                     this.ctx.fillStyle = '#94a3b8';
-                    this.ctx.font = '10px sans-serif';
                     this.ctx.textAlign = 'right';
-                    this.ctx.fillText(`${keys[0]}..${keys[keys.length - 1]}`, x + w - pad, cy);
+                    this.ctx.fillText(`${cellCount}`, x + w - pad, cy);
                 }
-            }
-
-            // Cell bars
-            cy += 6;
-            const maxShow = 8;
-            const showCells = node.cells.slice(0, maxShow);
-            showCells.forEach((cell, i) => {
-                const barY = cy + i * cellRowH;
-                const barH = cellRowH - 3;
-
-                // Key label
-                this.ctx.fillStyle = info.accentColor;
-                this.ctx.font = 'bold 9px monospace';
-                this.ctx.textAlign = 'left';
-                this.ctx.fillText(String(cell.key), x + pad, barY + barH / 2 + 1);
-
-                // Small bar
-                const barX = x + pad + 30;
-                const barMaxW = cellAreaW - 30;
-                const barW = Math.max(4, Math.min(barMaxW, cell.keyLen * 2));
-                this.ctx.fillStyle = info.accentColor + '33'; // transparent
-                this.roundRect(barX, barY, barW, barH, 3);
-                this.ctx.fill();
-            });
-
-            // Overflow indicator
-            if (cellCount > maxShow) {
-                const overflowY = cy + maxShow * cellRowH;
+            } else {
                 this.ctx.fillStyle = '#94a3b8';
                 this.ctx.font = '9px sans-serif';
                 this.ctx.textAlign = 'center';
-                this.ctx.fillText(`+${cellCount - maxShow} more`, x + w / 2, overflowY + 6);
+                this.ctx.fillText('empty', x + w / 2, cy);
             }
         };
 

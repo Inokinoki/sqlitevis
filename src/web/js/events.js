@@ -259,7 +259,7 @@ class EventManager {
                 return `pageSize=${data.pageSize}, pages=${data.numPages}`;
 
             case 'BTREE_INSERT':
-                return `page=${data.page}, cell=${data.cell}, keyLen=${data.keyLen}`;
+                return `page=${data.page} cell=${data.cell} key=${data.keyLen} root=${data.rootPage}`;
 
             case 'BTREE_DELETE':
                 return `page=${data.page}, cell=${data.cell}`;
