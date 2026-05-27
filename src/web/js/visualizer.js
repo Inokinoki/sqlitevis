@@ -1720,35 +1720,24 @@ class BTreeVisualizer {
         // Pre-calculate positions and text
         const textX = 40;
         const maxWidth = Math.min(500, width - 60);
-
-        // Draw normal opcodes in batch
-        this.ctx.fillStyle = this.colors.text;
         this.ctx.font = '13px monospace';
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'top';
 
-        normalOpcodes.forEach(({ op, y }) => {
-            this.ctx.fillText(
-                `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`,
-                textX,
-                y + 8
-            );
-        });
+        // Merge and sort all opcodes by y position, then draw top-to-bottom
+        const allRows = [...normalOpcodes, ...highlightedOpcode].sort((a, b) => a.y - b.y);
+        for (const { op, y } of allRows) {
+            const isCurrent = highlightedOpcode.length > 0 && op === highlightedOpcode[0].op;
+            const text = `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`;
 
-        // Draw highlighted opcode with background
-        if (highlightedOpcode.length > 0) {
-            const { op, y } = highlightedOpcode[0];
-
-            this.ctx.fillStyle = this.colors.nodeHighlight;
-            this.ctx.fillRect(textX - 10, y - 5, maxWidth, lineHeight - 2);
-
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = '13px monospace';
-            this.ctx.fillText(
-                `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`,
-                textX,
-                y + 8
-            );
+            if (isCurrent) {
+                this.ctx.fillStyle = this.colors.nodeHighlight;
+                this.ctx.fillRect(textX - 10, y - 2, maxWidth, lineHeight - 2);
+                this.ctx.fillStyle = '#ffffff';
+            } else {
+                this.ctx.fillStyle = this.colors.text;
+            }
+            this.ctx.fillText(text, textX, y + 4);
         }
 
         // Draw stats at bottom
