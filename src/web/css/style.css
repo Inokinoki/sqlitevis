@@ -359,6 +359,62 @@ section h2 {
     color: var(--text-primary);
 }
 
+.btn-view-data {
+    margin-top: 8px;
+    padding: 4px 12px;
+    background: var(--accent-color);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.btn-view-data:hover {
+    opacity: 0.85;
+}
+.btn-view-data:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.node-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 0.75rem;
+}
+.node-data-table th {
+    background: var(--bg-tertiary);
+    padding: 3px 6px;
+    text-align: left;
+    font-weight: 600;
+}
+.node-data-table td {
+    padding: 3px 6px;
+    border-top: 1px solid var(--border-color);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* VDBE Step Controls */
+.vdbe-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+    padding: 4px 0;
+}
+.vdbe-controls.hidden {
+    display: none;
+}
+.vdbe-step-info {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-left: 8px;
+}
+
 /* Footer */
 footer {
     background: var(--bg-primary);

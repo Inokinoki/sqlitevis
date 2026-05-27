@@ -209,7 +209,9 @@ INSERT INTO sqltest VALUES(1);`);
         const tree = await page.evaluate(() => window.viz.parseTree);
         expect(tree).not.toBeNull();
         expect(tree).toHaveProperty('type');
-        expect(tree.type).toBe('statement');
+        expect(tree.type).toBe('SQL');
+        expect(tree.children.length).toBeGreaterThanOrEqual(1);
+        expect(tree.children[0].type).toBe('CREATE');
     });
 });
 

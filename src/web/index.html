@@ -77,6 +77,12 @@ SELECT * FROM users;</textarea>
                             <span id="speed-value">1.0x</span>
                         </label>
                     </div>
+                    <div id="vdbe-controls" class="vdbe-controls hidden">
+                        <button id="vdbe-reset" class="btn btn-small btn-secondary">Reset</button>
+                        <button id="vdbe-prev" class="btn btn-small btn-secondary">Prev</button>
+                        <button id="vdbe-next" class="btn btn-small btn-primary">Next Opcode</button>
+                        <span id="vdbe-step-info" class="vdbe-step-info"></span>
+                    </div>
                     <canvas id="visualization-canvas"></canvas>
                     <div id="node-info" class="node-info hidden">
                         <h3>Node Information</h3>

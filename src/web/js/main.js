@@ -214,6 +214,11 @@ class SQLiteVisApp {
         eventManager.on(13, (e) => { // VDBE_COMPLETE
             if (this.visualizer) this.visualizer.showVdbeComplete(e.data.resultCode);
         });
+
+        // Node data query callback
+        this.visualizer.onQueryNodeData = async (pageNum, rowids) => {
+            return this.queryNodeData(pageNum, rowids);
+        };
     }
 
     /**
@@ -272,6 +277,17 @@ class SQLiteVisApp {
         // Step button
         document.getElementById('step-btn').addEventListener('click', () => {
             this.stepThroughSQL();
+        });
+
+        // VDBE step controls
+        document.getElementById('vdbe-next').addEventListener('click', () => {
+            if (this.visualizer) this.visualizer.stepVdbe(1);
+        });
+        document.getElementById('vdbe-prev').addEventListener('click', () => {
+            if (this.visualizer) this.visualizer.stepVdbe(-1);
+        });
+        document.getElementById('vdbe-reset').addEventListener('click', () => {
+            if (this.visualizer) this.visualizer.stepVdbe(0);
         });
 
         // Ctrl+Enter / Cmd+Enter to execute SQL
@@ -370,6 +386,10 @@ class SQLiteVisApp {
         } else if (lastOutput && lastOutput.message) {
             this.showHTMLOutput(`<div style="color:var(--success-color)">${this._escapeHtml(lastOutput.message)}</div>`);
         }
+
+        // Rebuild page-to-table mapping after execution (tables may have been created)
+        this._buildPageToTableMap();
+
         this.updateStatus('Ready');
     }
 
@@ -465,6 +485,107 @@ class SQLiteVisApp {
         }
         parts.push('</table>');
         return parts.join('');
+    }
+
+    /**
+     * Execute SQL and return raw {columns, rows} instead of HTML
+     */
+    _queryRaw(sql) {
+        const mod = this.sqliteModule;
+        const trimmedSql = sql.trim();
+
+        try {
+            const sqlLen = mod.lengthBytesUTF8(trimmedSql) + 1;
+            const sqlPtr = mod._malloc(sqlLen);
+            mod.stringToUTF8(trimmedSql, sqlPtr, sqlLen);
+
+            const errorPtrPtr = mod._malloc(4);
+            mod.HEAP32[errorPtrPtr >> 2] = 0;
+
+            let columns = null;
+            let rows = [];
+
+            const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
+                if (!columns) {
+                    columns = [];
+                    for (let i = 0; i < colCount; i++) {
+                        const namePtr = mod.HEAP32[(colNamesPtr >> 2) + i];
+                        columns.push(mod.UTF8ToString(namePtr));
+                    }
+                }
+                const row = [];
+                for (let i = 0; i < colCount; i++) {
+                    const valPtr = mod.HEAP32[(colValuesPtr >> 2) + i];
+                    row.push(valPtr === 0 ? null : mod.UTF8ToString(valPtr));
+                }
+                rows.push(row);
+                return 0;
+            };
+            const callbackPtr = mod.addFunction(callback, 'iiiii');
+            const result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
+            mod.removeFunction(callbackPtr);
+            mod._free(sqlPtr);
+
+            if (result !== 0) {
+                const errorMsgPtr = mod.HEAP32[errorPtrPtr >> 2];
+                const errMsg = errorMsgPtr ? mod.UTF8ToString(errorMsgPtr) : 'Error ' + result;
+                mod._free(errorPtrPtr);
+                return { error: errMsg };
+            }
+            mod._free(errorPtrPtr);
+            return { columns: columns || [], rows };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    /**
+     * Build mapping from rootPage number to table name
+     */
+    _buildPageToTableMap() {
+        this._pageToTable = new Map();
+        const result = this._queryRaw("SELECT name, rootpage FROM sqlite_master WHERE type='table'");
+        if (result.columns) {
+            const nameIdx = result.columns.indexOf('name');
+            const rootIdx = result.columns.indexOf('rootpage');
+            if (nameIdx >= 0 && rootIdx >= 0) {
+                for (const row of result.rows) {
+                    this._pageToTable.set(parseInt(row[rootIdx]), row[nameIdx]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Walk up the tree to find root page for a given node
+     */
+    _findRootPageForNode(pageNum) {
+        let current = this.visualizer.nodes.get(pageNum);
+        while (current && current.parent !== null) {
+            current = this.visualizer.nodes.get(current.parent);
+        }
+        return current ? current.page : null;
+    }
+
+    /**
+     * Query actual row data for a node by rowid
+     */
+    queryNodeData(pageNum, rowids) {
+        if (!rowids || !rowids.length) return { error: 'No rowids' };
+
+        const rootPage = this._findRootPageForNode(pageNum);
+        if (!rootPage) return { error: 'Cannot determine table for page ' + pageNum };
+
+        if (!this._pageToTable || !this._pageToTable.has(rootPage)) {
+            return { error: 'Unknown table for root page ' + rootPage };
+        }
+
+        const tableName = this._pageToTable.get(rootPage);
+        const rowidList = rowids.join(',');
+        const sql = 'SELECT * FROM "' + tableName + '" WHERE rowid IN (' + rowidList + ')';
+        const result = this._queryRaw(sql);
+        if (result.error) return result;
+        return { columns: result.columns, rows: result.rows };
     }
 
     /**

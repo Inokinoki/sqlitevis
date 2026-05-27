@@ -28,6 +28,10 @@ class BTreeVisualizer {
         // VDBE state
         this.vdbeOpcodes = [];
         this.vdbeCurrentPc = -1;
+        this.vdbeStepIndex = -1; // for step-by-step playback
+
+        // Callback for querying actual row data from main.js
+        this.onQueryNodeData = null; // async (pageNum, rowids) => { columns, rows } or { error }
 
         // Track last accessed page for parent-child relationships
         this.lastAccessedPage = null;
@@ -849,7 +853,8 @@ class BTreeVisualizer {
                 this.ctx.fillStyle = '#94a3b8';
                 this.ctx.font = '9px sans-serif';
                 this.ctx.textAlign = 'center';
-                this.ctx.fillText('empty', x + w / 2, cy);
+                const label = node.parent !== null && node.parent !== undefined ? 'after split' : 'empty';
+                this.ctx.fillText(label, x + w / 2, cy);
             }
         };
 
@@ -1007,6 +1012,74 @@ class BTreeVisualizer {
             noCells.textContent = 'No cells';
             this._nodeInfoCache.cellDiv.appendChild(noCells);
         }
+
+        // Add "View Row Data" button for leaf nodes with cells
+        if (node.type === 1 && node.cells.length > 0 && this.onQueryNodeData) {
+            const btn = document.createElement('button');
+            btn.textContent = 'View Row Data';
+            btn.className = 'btn-view-data';
+            btn.onclick = async () => {
+                btn.textContent = 'Loading...';
+                btn.disabled = true;
+                const rowids = node.cells.map(c => c.key);
+                try {
+                    const result = await this.onQueryNodeData(node.page, rowids);
+                    this.showNodeData(node, result);
+                } catch (e) {
+                    this.showNodeData(node, { error: e.message });
+                }
+                btn.textContent = 'View Row Data';
+                btn.disabled = false;
+            };
+            this._nodeInfoCache.cellDiv.appendChild(btn);
+        }
+
+        // Clear any previous data display
+        const existingData = document.getElementById('node-data');
+        if (existingData) existingData.remove();
+    }
+
+    /**
+     * Show actual row data for a node (queried from SQLite)
+     */
+    showNodeData(node, result) {
+        const detailsDiv = document.getElementById('node-details');
+        if (!detailsDiv) return;
+
+        let dataDiv = document.getElementById('node-data');
+        if (!dataDiv) {
+            dataDiv = document.createElement('div');
+            dataDiv.id = 'node-data';
+            detailsDiv.appendChild(dataDiv);
+        }
+
+        if (result.error) {
+            dataDiv.innerHTML = '<div style="color:var(--danger-color);margin-top:8px">' +
+                this._escapeHtml(result.error) + '</div>';
+            return;
+        }
+
+        if (!result.columns || !result.rows || result.rows.length === 0) {
+            dataDiv.innerHTML = '<div style="color:var(--text-secondary);margin-top:8px;font-style:italic">No rows found</div>';
+            return;
+        }
+
+        let html = '<table class="node-data-table"><tr>';
+        for (const col of result.columns) html += '<th>' + this._escapeHtml(col) + '</th>';
+        html += '</tr>';
+        for (const row of result.rows) {
+            html += '<tr>';
+            for (const cell of row) html += '<td>' + this._escapeHtml(cell) + '</td>';
+            html += '</tr>';
+        }
+        html += '</table>';
+        dataDiv.innerHTML = html;
+    }
+
+    _escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s == null ? 'NULL' : String(s);
+        return d.innerHTML;
     }
 
     /**
@@ -1132,12 +1205,19 @@ class BTreeVisualizer {
         this.lastAccessedPage = null;
         this.parseTokens = [];
         this.currentSQL = '';
+        this.parseTree = null;
         this.vdbeOpcodes = [];
         this.vdbeCurrentPc = -1;
+        this.vdbeStepIndex = -1;
         this.vdbeState = '';
         this.animations = [];
         this.highlightedNodes.clear();
         this._layoutCache.clear();
+        // Hide VDBE controls
+        const vdbeCtrl = document.getElementById('vdbe-controls');
+        if (vdbeCtrl) vdbeCtrl.classList.add('hidden');
+        const vdbeInfo = document.getElementById('vdbe-step-info');
+        if (vdbeInfo) vdbeInfo.textContent = '';
         this.draw();
     }
 
@@ -1146,6 +1226,16 @@ class BTreeVisualizer {
      */
     setViewMode(mode) {
         this.viewMode = mode;
+
+        // Toggle VDBE step controls visibility
+        const vdbeCtrl = document.getElementById('vdbe-controls');
+        if (vdbeCtrl) {
+            if (mode === 'vdbe' && this.vdbeOpcodes.some(o => o)) {
+                vdbeCtrl.classList.remove('hidden');
+            } else {
+                vdbeCtrl.classList.add('hidden');
+            }
+        }
 
         // Render the appropriate view
         if (mode === 'parse') {
@@ -1167,6 +1257,56 @@ class BTreeVisualizer {
      */
     setAnimationSpeed(speed) {
         this.animationSpeed = speed;
+    }
+
+    /**
+     * Step through VDBE opcodes one at a time
+     * @param {number} direction - 1 for forward, -1 for backward, 0 for reset
+     */
+    stepVdbe(direction) {
+        const ops = this.vdbeOpcodes.filter(o => o);
+        if (ops.length === 0) return;
+
+        if (direction === 0) {
+            // Reset
+            this.vdbeStepIndex = -1;
+        } else {
+            // Find next/prev valid opcode index
+            const validPcs = this.vdbeOpcodes.map((o, i) => o ? i : -1).filter(i => i >= 0);
+            if (validPcs.length === 0) return;
+
+            if (this.vdbeStepIndex < 0) {
+                // Not started yet — begin from first or last
+                this.vdbeStepIndex = direction > 0 ? validPcs[0] : validPcs[validPcs.length - 1];
+            } else {
+                const currentPos = validPcs.indexOf(this.vdbeStepIndex);
+                if (currentPos < 0) {
+                    this.vdbeStepIndex = validPcs[0];
+                } else {
+                    const newPos = currentPos + direction;
+                    if (newPos < 0 || newPos >= validPcs.length) return; // at boundary
+                    this.vdbeStepIndex = validPcs[newPos];
+                }
+            }
+        }
+
+        // Update step info text
+        const opsFiltered = this.vdbeOpcodes.filter(o => o);
+        const validPcs = this.vdbeOpcodes.map((o, i) => o ? i : -1).filter(i => i >= 0);
+        const pos = validPcs.indexOf(this.vdbeStepIndex) + 1;
+        const info = document.getElementById('vdbe-step-info');
+        if (info) {
+            if (this.vdbeStepIndex < 0) {
+                info.textContent = '';
+            } else {
+                const op = this.vdbeOpcodes[this.vdbeStepIndex];
+                info.textContent = `Step ${pos}/${validPcs.length}: [${op.pc}] ${op.opcode}`;
+            }
+        }
+
+        // Redraw with step highlight
+        this.drawVdbeList('Stepping', this.vdbeStepIndex >= 0
+            ? `Opcode ${pos} of ${validPcs.length}` : 'Ready');
     }
 
     /**
@@ -1261,40 +1401,243 @@ class BTreeVisualizer {
     }
 
     /**
-     * Build a simple parse tree from SQL
+     * Build a proper AST from SQL for visualization
+     * Handles SELECT, INSERT, CREATE TABLE, UPDATE, DELETE
      */
     buildParseTree(sql) {
-        // Simple SQL parser for visualization
         const tokens = this.tokenizeSQL(sql);
-        const tree = {
-            type: 'statement',
-            text: sql,
-            children: []
+        if (tokens.length === 0) return { type: 'root', text: sql, children: [] };
+
+        // Simple recursive descent parser
+        let pos = 0;
+        const peek = () => tokens[pos];
+        const advance = () => tokens[pos++];
+        const expectKeyword = (kw) => {
+            const t = peek();
+            if (t && t.type === 'keyword' && t.text.toUpperCase() === kw) return advance();
+            return null;
+        };
+        const isKeyword = (kw) => peek() && peek().type === 'keyword' && peek().text.toUpperCase() === kw;
+
+        // Collect tokens until a boundary keyword
+        const collectUntil = (stopWords) => {
+            const items = [];
+            while (pos < tokens.length) {
+                const t = peek();
+                if (!t) break;
+                if (t.type === 'keyword' && stopWords.some(w => t.text.toUpperCase() === w)) break;
+                advance();
+                items.push(t);
+            }
+            return items;
         };
 
-        let current = tree;
-        let depth = 0;
+        const parseSelect = () => {
+            advance(); // SELECT
+            const node = { type: 'SELECT', text: 'SELECT', children: [] };
 
-        for (const token of tokens) {
-            if (token.type === 'keyword') {
-                if (['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER'].includes(token.text)) {
-                    const node = {
-                        type: 'command',
-                        text: token.text,
-                        children: []
-                    };
-                    tree.children.push(node);
-                    current = node;
+            // DISTINCT?
+            if (isKeyword('DISTINCT')) {
+                node.children.push({ type: 'modifier', text: 'DISTINCT', children: [] });
+                advance();
+            }
+
+            // Columns
+            const cols = collectUntil(['FROM', 'WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING']);
+            if (cols.length > 0) {
+                const colNode = { type: 'columns', text: cols.map(c => c.text).join(' '), children: [] };
+                node.children.push(colNode);
+            }
+
+            // FROM
+            if (isKeyword('FROM')) {
+                advance();
+                const fromItems = collectUntil(['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'ON']);
+                const fromNode = { type: 'from', text: fromItems.map(c => c.text).join(' '), children: [] };
+                node.children.push(fromNode);
+            }
+
+            // WHERE
+            if (isKeyword('WHERE')) {
+                advance();
+                const whereItems = collectUntil(['ORDER', 'LIMIT', 'GROUP', 'HAVING']);
+                const whereNode = { type: 'where', text: whereItems.map(c => c.text).join(' '), children: [] };
+                node.children.push(whereNode);
+            }
+
+            // GROUP BY
+            if (isKeyword('GROUP')) {
+                advance(); // GROUP
+                advance(); // BY
+                const items = collectUntil(['HAVING', 'ORDER', 'LIMIT']);
+                node.children.push({ type: 'group_by', text: items.map(c => c.text).join(' '), children: [] });
+            }
+
+            // ORDER BY
+            if (isKeyword('ORDER')) {
+                advance(); // ORDER
+                advance(); // BY
+                const items = collectUntil(['LIMIT']);
+                node.children.push({ type: 'order_by', text: items.map(c => c.text).join(' '), children: [] });
+            }
+
+            // LIMIT
+            if (isKeyword('LIMIT')) {
+                advance();
+                const items = collectUntil([]);
+                node.children.push({ type: 'limit', text: items.map(c => c.text).join(' '), children: [] });
+            }
+
+            return node;
+        };
+
+        const parseInsert = () => {
+            advance(); // INSERT
+            advance(); // INTO (keyword)
+            const node = { type: 'INSERT', text: 'INSERT', children: [] };
+
+            // Table name
+            const table = advance();
+            if (table) {
+                node.children.push({ type: 'table', text: table.text, children: [] });
+            }
+
+            // Column list (...)
+            if (peek() && peek().text === '(') {
+                advance(); // (
+                const cols = collectUntil([')']);
+                if (peek() && peek().text === ')') advance();
+                node.children.push({ type: 'columns', text: cols.map(c => c.text).join(', '), children: [] });
+            }
+
+            // VALUES
+            if (isKeyword('VALUES')) {
+                advance();
+                const vals = collectUntil([]);
+                // Split by ) and ( to get value groups
+                const valText = vals.map(c => c.text).join(' ');
+                node.children.push({ type: 'values', text: valText, children: [] });
+            }
+
+            return node;
+        };
+
+        const parseCreate = () => {
+            advance(); // CREATE
+            const node = { type: 'CREATE', text: 'CREATE TABLE', children: [] };
+
+            // TABLE (IF NOT EXISTS)
+            if (isKeyword('TABLE')) advance();
+            if (isKeyword('IF')) { advance(); advance(); } // IF NOT EXISTS
+
+            // Table name
+            const table = advance();
+            if (table) {
+                node.children.push({ type: 'table', text: table.text, children: [] });
+            }
+
+            // Column definitions: collect everything inside (...)
+            if (peek() && peek().text === '(') {
+                advance(); // (
+                let depth = 0;
+                const colTokens = [];
+                while (pos < tokens.length) {
+                    const t = peek();
+                    if (t.text === '(') depth++;
+                    if (t.text === ')') {
+                        if (depth === 0) { advance(); break; }
+                        depth--;
+                    }
+                    advance();
+                    colTokens.push(t);
                 }
-            } else if (token.type === 'identifier' || token.type === 'table') {
-                if (current) {
-                    current.children.push({
-                        type: 'identifier',
-                        text: token.text,
-                        children: []
-                    });
+                // Split by comma to get individual column defs
+                const colDefs = [];
+                let current = [];
+                for (const t of colTokens) {
+                    if (t.text === ',') {
+                        if (current.length > 0) {
+                            colDefs.push(current.map(c => c.text).join(' '));
+                            current = [];
+                        }
+                    } else {
+                        current.push(t);
+                    }
+                }
+                if (current.length > 0) colDefs.push(current.map(c => c.text).join(' '));
+
+                for (const def of colDefs) {
+                    node.children.push({ type: 'column_def', text: def, children: [] });
                 }
             }
+
+            return node;
+        };
+
+        const parseUpdate = () => {
+            advance(); // UPDATE
+            const node = { type: 'UPDATE', text: 'UPDATE', children: [] };
+
+            const table = advance();
+            if (table) node.children.push({ type: 'table', text: table.text, children: [] });
+
+            if (isKeyword('SET')) {
+                advance();
+                const setItems = collectUntil(['WHERE']);
+                node.children.push({ type: 'set', text: setItems.map(c => c.text).join(' '), children: [] });
+            }
+
+            if (isKeyword('WHERE')) {
+                advance();
+                const whereItems = collectUntil([]);
+                node.children.push({ type: 'where', text: whereItems.map(c => c.text).join(' '), children: [] });
+            }
+
+            return node;
+        };
+
+        const parseDelete = () => {
+            advance(); // DELETE
+            advance(); // FROM
+            const node = { type: 'DELETE', text: 'DELETE', children: [] };
+
+            const table = advance();
+            if (table) node.children.push({ type: 'table', text: table.text, children: [] });
+
+            if (isKeyword('WHERE')) {
+                advance();
+                const whereItems = collectUntil([]);
+                node.children.push({ type: 'where', text: whereItems.map(c => c.text).join(' '), children: [] });
+            }
+
+            return node;
+        };
+
+        // Parse one statement
+        const parseStatement = () => {
+            const t = peek();
+            if (!t) return null;
+
+            if (t.type === 'keyword') {
+                const kw = t.text.toUpperCase();
+                if (kw === 'SELECT') return parseSelect();
+                if (kw === 'INSERT') return parseInsert();
+                if (kw === 'CREATE') return parseCreate();
+                if (kw === 'UPDATE') return parseUpdate();
+                if (kw === 'DELETE') return parseDelete();
+            }
+
+            // Unknown statement — collect all remaining
+            const all = collectUntil([]);
+            return { type: 'statement', text: all.map(c => c.text).join(' '), children: [] };
+        };
+
+        const tree = { type: 'SQL', text: sql, children: [] };
+        while (pos < tokens.length) {
+            const stmt = parseStatement();
+            if (stmt) tree.children.push(stmt);
+            // Skip any stray semicolons
+            while (pos < tokens.length && tokens[pos].text === ';') pos++;
         }
 
         return tree;
@@ -1335,14 +1678,12 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw parse tree visualization (OPTIMIZED with viewport virtualization)
+     * Draw parse tree visualization — AST tree with nodes and connections
      */
     drawParseTree(waiting = false) {
-        // Use cached dimensions
         const width = this._canvasWidth || this.canvas.clientWidth;
         const height = this._canvasHeight || this.canvas.clientHeight;
 
-        // Clear and draw background
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
@@ -1355,193 +1696,209 @@ class BTreeVisualizer {
             this.ctx.fillText('SQL Parse Tree', width / 2, height / 2 - 40);
             this.ctx.font = '14px sans-serif';
             this.ctx.fillStyle = this.colors.textLight;
-            this.ctx.fillText('Execute a SQL query to see its parse tree structure', width / 2, height / 2);
+            this.ctx.fillText('Execute a SQL query to see its AST', width / 2, height / 2);
             this.ctx.font = '13px monospace';
             this.ctx.fillStyle = '#94a3b8';
-            this.ctx.fillText('Example: SELECT id, name FROM users;', width / 2, height / 2 + 30);
+            this.ctx.fillText('Example: SELECT id, name FROM users WHERE age > 18;', width / 2, height / 2 + 30);
             return;
         }
 
-        // Title + SQL
+        // Title
         this.ctx.fillStyle = this.colors.text;
-        this.ctx.font = 'bold 14px sans-serif';
+        this.ctx.font = 'bold 13px sans-serif';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText('SQL Parse Tree', width / 2, 12);
+        this.ctx.fillText('SQL Abstract Syntax Tree', width / 2, 10);
 
-        this.ctx.font = '12px monospace';
+        // SQL text (truncated)
+        this.ctx.font = '11px monospace';
         this.ctx.fillStyle = this.colors.textLight;
         const displaySQL = this.currentSQL.length > 80
             ? this.currentSQL.substring(0, 77) + '...'
             : this.currentSQL;
-        this.ctx.fillText(displaySQL, width / 2, 34);
+        this.ctx.fillText(displaySQL, width / 2, 28);
 
-        // Draw tokens
-        if (this.parseTokens.length > 0) {
-            this.drawParseTokens();
+        // Build AST if not built yet
+        if (!this.parseTree || this.parseTree.children.length === 0) {
+            this.parseTree = this.buildParseTree(this.currentSQL);
         }
 
-        // Status
+        // Layout AST tree on canvas
+        if (this.parseTree && this.parseTree.children.length > 0) {
+            this._layoutAndDrawAST(this.parseTree, width, height);
+        }
+
+        // Token count at bottom
         this.ctx.font = '11px sans-serif';
         this.ctx.fillStyle = '#10b981';
         this.ctx.textBaseline = 'bottom';
-        this.ctx.fillText(`${this.parseTokens.length} tokens parsed`, width / 2, height - 10);
-    }
-
-    /**
-     * Draw tree node recursively
-     */
-    drawTreeNode(node, x, y, depth) {
-        const nodeSize = 40;
-        const levelGap = 80;
-
-        // Draw connections to children
-        if (node.children && node.children.length > 0) {
-            const childWidth = (node.children.length - 1) * 100;
-            let startX = x - childWidth / 2;
-
-            node.children.forEach((child, i) => {
-                const childX = startX + i * 100;
-                const childY = y + levelGap;
-
-                // Draw connection line
-                this.ctx.strokeStyle = this.colors.connection;
-                this.ctx.lineWidth = 2;
-                this.ctx.beginPath();
-                this.ctx.moveTo(x, y + nodeSize / 2);
-                this.ctx.lineTo(childX, childY - nodeSize / 2);
-                this.ctx.stroke();
-
-                // Recursively draw child
-                this.drawTreeNode(child, childX, childY, depth + 1);
-            });
-        }
-
-        // Draw node
-        const color = node.type === 'command' ? this.colors.nodeInternal :
-                     node.type === 'identifier' ? this.colors.nodeLeaf :
-                     this.colors.node;
-
-        this.ctx.fillStyle = color;
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, nodeSize / 2, 0, Math.PI * 2);
-        this.ctx.fill();
-
-        this.ctx.strokeStyle = this.colors.border;
-        this.ctx.lineWidth = 2;
-        this.ctx.stroke();
-
-        // Draw label
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 11px sans-serif';
         this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText(node.text.substring(0, 8), x, y);
+        this.ctx.fillText(`${this.parseTokens.length} tokens parsed | ${this.parseTree.children.length} statement(s)`, width / 2, height - 8);
     }
 
     /**
-     * Draw parse tokens list with viewport virtualization (HIGHLY OPTIMIZED)
-     * Only renders tokens that fit in the visible viewport
+     * Layout and draw AST as a tree with proper spacing
      */
-    drawParseTokens() {
-        const width = this._canvasWidth || this.canvas.clientWidth;
-        const height = this._canvasHeight || this.canvas.clientHeight;
+    _layoutAndDrawAST(tree, canvasWidth, canvasHeight) {
+        const startY = 50;
+        const nodeH = 36;
+        const vGap = 18;
+        const hGap = 16;
+        const padding = 20;
 
-        const startY = 60;  // Start right after SQL text
-        const tokenWidth = 150;
-        const tokenHeight = 28;
-        const tokenGap = 5;
+        // If multiple statements, treat each as a top-level subtree
+        const stmts = tree.children;
+        if (stmts.length === 0) return;
 
-        // Check if we have space to draw tokens
-        if (startY >= height - 60) {
-            return; // Not enough space, skip token rendering
-        }
-
-        // Draw section header
-        this.ctx.fillStyle = this.colors.textLight;
-        this.ctx.font = '12px sans-serif';
-        this.ctx.textAlign = 'left';
-        this.ctx.textBaseline = 'top';
-        this.ctx.fillText(`Tokens (${this.parseTokens.length}):`, 20, startY);
-
-        // Calculate viewport
-        const availableHeight = height - startY - 60;
-        const maxVisibleTokens = Math.floor(availableHeight / (tokenHeight + tokenGap));
-        const tokensToRender = Math.min(this.parseTokens.length, maxVisibleTokens);
-
-        if (tokensToRender === 0) {
-            return;
-        }
-
-        // Pre-calculate colors
-        const keywordColor = this.colors.nodeInternal;   // purple for keywords
-        const identifierColor = this.colors.nodeLeaf;     // green for identifiers
-        const stringColor = '#f59e0b';                    // amber for strings
-        const numberColor = '#3b82f6';                    // blue for numbers
-        const symbolColor = '#6b7280';                    // gray for symbols/operators
-        const borderColor = this.colors.border;
-
-        // Batch tokens by type to minimize fillStyle changes
-        const keywordTokens = [];
-        const identifierTokens = [];
-        const stringTokens = [];
-        const numberTokens = [];
-        const symbolTokens = [];
-
-        for (let i = 0; i < tokensToRender; i++) {
-            const token = this.parseTokens[i];
-            const y = startY + 30 + i * (tokenHeight + tokenGap);
-            const tokenData = { token, x: 20, y };
-
-            if (token.type === 'keyword') keywordTokens.push(tokenData);
-            else if (token.type === 'identifier') identifierTokens.push(tokenData);
-            else if (token.type === 'string') stringTokens.push(tokenData);
-            else if (token.type === 'number') numberTokens.push(tokenData);
-            else symbolTokens.push(tokenData);
-        }
-
-        // Helper to draw token batch
-        const drawTokenBatch = (tokens, fillColor) => {
-            if (tokens.length === 0) return;
-
-            this.ctx.fillStyle = fillColor;
-            this.ctx.strokeStyle = borderColor;
-            this.ctx.lineWidth = 1;
-            this.ctx.font = '11px monospace';
-            this.ctx.textAlign = 'left';
-            this.ctx.textBaseline = 'middle';
-
-            tokens.forEach(({ token, x, y }) => {
-                // Draw background
-                this.ctx.fillRect(x, y, tokenWidth, tokenHeight);
-                this.ctx.strokeRect(x, y, tokenWidth, tokenHeight);
-
-                // Draw text
-                this.ctx.fillStyle = 'white';
-                this.ctx.fillText(`${token.token} (${token.type})`, x + 10, y + tokenHeight / 2);
-                this.ctx.fillStyle = fillColor; // Reset for next rectangle
-            });
+        // For each statement, calculate its subtree width
+        const measureNode = (node) => {
+            const textW = this.ctx.measureText(node.type + (node.text !== node.type ? ': ' + node.text : '')).width + 24;
+            if (!node.children || node.children.length === 0) {
+                return { width: Math.max(textW, 60), height: nodeH };
+            }
+            let childTotalW = 0;
+            let maxChildH = 0;
+            for (const child of node.children) {
+                const m = measureNode(child);
+                childTotalW += m.width;
+                maxChildH = Math.max(maxChildH, m.height);
+            }
+            childTotalW += (node.children.length - 1) * hGap;
+            return {
+                width: Math.max(textW, childTotalW),
+                height: nodeH + vGap + maxChildH
+            };
         };
 
-        // Draw batches by color (fewer context state changes)
-        drawTokenBatch(symbolTokens, symbolColor);
-        drawTokenBatch(numberTokens, numberColor);
-        drawTokenBatch(stringTokens, stringColor);
-        drawTokenBatch(identifierTokens, identifierColor);
-        drawTokenBatch(keywordTokens, keywordColor);
+        // Assign positions (x, y) to each node
+        const assignPositions = (node, x, y, availWidth) => {
+            node._x = x;
+            node._y = y;
+            node._w = availWidth;
 
-        // Draw "more tokens" indicator if needed
-        if (this.parseTokens.length > tokensToRender) {
-            this.ctx.fillStyle = this.colors.textLight;
-            this.ctx.font = '10px sans-serif';
-            this.ctx.textAlign = 'left';
-            this.ctx.textBaseline = 'top';
-            this.ctx.fillText(
-                `... and ${this.parseTokens.length - tokensToRender} more tokens`,
-                20,
-                startY + 30 + tokensToRender * (tokenHeight + tokenGap)
-            );
+            if (!node.children || node.children.length === 0) return;
+
+            // Measure each child
+            const childMeasures = node.children.map(c => measureNode(c));
+            let totalChildW = childMeasures.reduce((s, m) => s + m.width, 0) + (node.children.length - 1) * hGap;
+            if (totalChildW > availWidth) {
+                // Scale down — just distribute evenly
+                const perChild = (availWidth - (node.children.length - 1) * hGap) / node.children.length;
+                let cx = x;
+                for (let i = 0; i < node.children.length; i++) {
+                    assignPositions(node.children[i], cx, y + nodeH + vGap, perChild);
+                    cx += perChild + hGap;
+                }
+            } else {
+                // Center children within available width
+                let cx = x + (availWidth - totalChildW) / 2;
+                for (let i = 0; i < node.children.length; i++) {
+                    assignPositions(node.children[i], cx, y + nodeH + vGap, childMeasures[i].width);
+                    cx += childMeasures[i].width + hGap;
+                }
+            }
+        };
+
+        // Layout each statement side by side or stacked
+        this.ctx.font = 'bold 11px sans-serif';
+        if (stmts.length === 1) {
+            assignPositions(stmts[0], padding, startY, canvasWidth - padding * 2);
+        } else {
+            // Stack statements vertically
+            let currentY = startY;
+            for (const stmt of stmts) {
+                assignPositions(stmt, padding, currentY, canvasWidth - padding * 2);
+                const m = measureNode(stmt);
+                currentY += m.height + vGap * 2;
+            }
         }
+
+        // Draw all nodes and connections
+        const colorMap = {
+            'SELECT': '#7c3aed',   // purple
+            'INSERT': '#2563eb',   // blue
+            'CREATE': '#0891b2',   // cyan
+            'UPDATE': '#d97706',   // amber
+            'DELETE': '#dc2626',   // red
+            'SQL': '#334155',      // dark gray
+        };
+        const clauseColor = '#64748b';
+        const leafColor = '#059669';
+
+        const drawASTNode = (node) => {
+            const isTopLevel = colorMap[node.type] !== undefined;
+            const isClause = ['columns', 'from', 'where', 'values', 'set', 'table',
+                              'group_by', 'order_by', 'limit', 'modifier'].includes(node.type);
+            const isLeaf = !node.children || node.children.length === 0;
+            const isColDef = node.type === 'column_def';
+
+            // Color
+            let bgColor = isTopLevel ? colorMap[node.type] :
+                          isColDef ? '#475569' :
+                          isClause ? clauseColor :
+                          leafColor;
+
+            // Label
+            const label = node.type === node.text ? node.type :
+                          node.text.length > 30 ? node.type + ': ' + node.text.substring(0, 27) + '...' :
+                          node.type + ': ' + node.text;
+
+            const x = node._x;
+            const y = node._y;
+            const w = node._w;
+
+            // Draw connections to children first
+            if (node.children) {
+                for (const child of node.children) {
+                    this.ctx.strokeStyle = '#cbd5e1';
+                    this.ctx.lineWidth = 1.5;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x + w / 2, y + nodeH);
+                    this.ctx.lineTo(child._x + child._w / 2, child._y);
+                    this.ctx.stroke();
+                }
+            }
+
+            // Draw node box
+            this.ctx.fillStyle = bgColor;
+            this.roundRect(x, y, w, nodeH, 5);
+            this.ctx.fill();
+
+            // Border
+            this.ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+            this.ctx.lineWidth = 1;
+            this.roundRect(x, y, w, nodeH, 5);
+            this.ctx.stroke();
+
+            // Text
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.font = isTopLevel ? 'bold 11px sans-serif' : '10px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            const displayLabel = label.length > Math.floor(w / 7) + 5
+                ? label.substring(0, Math.floor(w / 7) + 3) + '...'
+                : label;
+            this.ctx.fillText(displayLabel, x + w / 2, y + nodeH / 2);
+
+            // Recurse children
+            if (node.children) {
+                for (const child of node.children) {
+                    drawASTNode(child);
+                }
+            }
+        };
+
+        for (const stmt of stmts) {
+            drawASTNode(stmt);
+        }
+    }
+
+    /**
+     * Draw parse tokens as a flat list (kept for backward compatibility,
+     * but AST tree is now the primary view)
+     */
+    drawParseTokens() {
+        // No-op — AST tree replaced the flat token list
     }
 
     /**
@@ -1551,6 +1908,9 @@ class BTreeVisualizer {
         // Always reset state regardless of view mode
         this.vdbeOpcodes = [];
         this.vdbeCurrentPc = -1;
+        this.vdbeStepIndex = -1;
+        const info = document.getElementById('vdbe-step-info');
+        if (info) info.textContent = '';
         if (this.viewMode === 'vdbe') {
             this.drawVdbeList('Program starting', `Expected ${numOpcodes} opcodes`);
         }
@@ -1703,15 +2063,20 @@ class BTreeVisualizer {
         const availableHeight = height - startY - padding;
         const maxVisibleOpcodes = Math.floor(availableHeight / lineHeight);
 
+        // Use step index for highlight if stepping, otherwise use final currentPc
+        const highlightPc = this.vdbeStepIndex >= 0 ? this.vdbeStepIndex : this.vdbeCurrentPc;
+
         let viewportStart = 0;
-        if (this.vdbeCurrentPc >= maxVisibleOpcodes / 2) {
-            viewportStart = Math.floor(this.vdbeCurrentPc - maxVisibleOpcodes / 2);
+        if (highlightPc >= maxVisibleOpcodes / 2) {
+            viewportStart = Math.floor(highlightPc - maxVisibleOpcodes / 2);
         }
         viewportStart = Math.max(0, Math.min(viewportStart, this.vdbeOpcodes.length - maxVisibleOpcodes));
         const viewportEnd = Math.min(this.vdbeOpcodes.length, viewportStart + maxVisibleOpcodes);
 
         const normalOpcodes = [];
         const highlightedOpcode = [];
+        // Track previously executed opcodes (for step mode)
+        const executedOpcodes = [];
         let drawRow = 0;
 
         for (let i = viewportStart; i < viewportEnd; i++) {
@@ -1720,12 +2085,16 @@ class BTreeVisualizer {
 
             const y = startY + drawRow * lineHeight;
             drawRow++;
-            const isCurrent = i === this.vdbeCurrentPc;
+            const isCurrent = i === highlightPc;
+            // In step mode, mark opcodes before current as "executed"
+            const isExecuted = this.vdbeStepIndex >= 0 && i < this.vdbeStepIndex && this.vdbeOpcodes[i];
 
             const opcodeData = { op, y, index: i };
 
             if (isCurrent) {
                 highlightedOpcode.push(opcodeData);
+            } else if (isExecuted) {
+                executedOpcodes.push(opcodeData);
             } else {
                 normalOpcodes.push(opcodeData);
             }
@@ -1739,15 +2108,21 @@ class BTreeVisualizer {
         this.ctx.textBaseline = 'top';
 
         // Merge and sort all opcodes by y position, then draw top-to-bottom
-        const allRows = [...normalOpcodes, ...highlightedOpcode].sort((a, b) => a.y - b.y);
+        const allRows = [...normalOpcodes, ...executedOpcodes, ...highlightedOpcode].sort((a, b) => a.y - b.y);
         for (const { op, y } of allRows) {
             const isCurrent = highlightedOpcode.length > 0 && op === highlightedOpcode[0].op;
+            const isExecuted = executedOpcodes.some(e => e.op === op);
             const text = `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`;
 
             if (isCurrent) {
                 this.ctx.fillStyle = this.colors.nodeHighlight;
                 this.ctx.fillRect(textX - 10, y - 2, maxWidth, lineHeight - 2);
                 this.ctx.fillStyle = '#ffffff';
+            } else if (isExecuted) {
+                // Subtle highlight for already-executed opcodes
+                this.ctx.fillStyle = '#e0f2fe';
+                this.ctx.fillRect(textX - 10, y - 2, maxWidth, lineHeight - 2);
+                this.ctx.fillStyle = '#0369a1';
             } else {
                 this.ctx.fillStyle = this.colors.text;
             }
@@ -1757,7 +2132,8 @@ class BTreeVisualizer {
         // Draw stats at bottom
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
-        const countText = `Total opcodes: ${this.vdbeOpcodes.length}`;
+        const opsFiltered = this.vdbeOpcodes.filter(o => o);
+        const countText = `Total opcodes: ${opsFiltered.length}`;
         const scrollText = viewportEnd < this.vdbeOpcodes.length
             ? ` (showing ${viewportStart + 1}-${viewportEnd})`
             : '';
