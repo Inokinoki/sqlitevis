@@ -52,6 +52,22 @@ header h1 {
     margin-bottom: 0.25rem;
 }
 
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.lang-select {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
 .subtitle {
     color: var(--text-secondary);
     font-size: 0.9rem;
