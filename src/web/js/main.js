@@ -365,10 +365,13 @@ class SQLiteVisApp {
         const stmts = this._splitStatements(sql);
         let lastOutput = null;
 
+        // Build parse tree once for the entire SQL batch
+        if (this.visualizer && stmts.length > 0) {
+            this.visualizer.showParseStart(sql.trim());
+        }
+
         for (const stmt of stmts) {
             if (!stmt.trim()) continue;
-            // Notify visualizer of each statement for parse tree visualization
-            if (this.visualizer) this.visualizer.showParseStart(stmt.trim());
             lastOutput = this._executeOne(stmt.trim());
             if (lastOutput && lastOutput.error) {
                 this.showHTMLOutput(

@@ -201,6 +201,17 @@ class BTreeVisualizer {
         this.levelHeight = 80;
         this.horizontalSpacing = 30;
 
+        // Pan & zoom state
+        this._panX = 0;
+        this._panY = 0;
+        this._zoom = 1;
+        this._isDragging = false;
+        this._dragStartX = 0;
+        this._dragStartY = 0;
+        this._dragStartPanX = 0;
+        this._dragStartPanY = 0;
+        this._dragMoved = false;
+
         // Colors
         this.colors = {
             node: '#3b82f6',
@@ -323,25 +334,78 @@ class BTreeVisualizer {
         let updateScheduled = false;
         let updateTimeout = null;
 
-        // Use passive listener for better scroll/touch performance
-        this.canvas.addEventListener('mousemove', (e) => {
+        // Helper: screen coords to world coords
+        const screenToWorld = (sx, sy) => ({
+            x: (sx - this._panX) / this._zoom,
+            y: (sy - this._panY) / this._zoom
+        });
+
+        // --- Pan (drag) ---
+        this.canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // left button
+                this._isDragging = true;
+                this._dragMoved = false;
+                this._dragStartX = e.clientX;
+                this._dragStartY = e.clientY;
+                this._dragStartPanX = this._panX;
+                this._dragStartPanY = this._panY;
+                this.canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!this._isDragging) return;
+            const dx = e.clientX - this._dragStartX;
+            const dy = e.clientY - this._dragStartY;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) this._dragMoved = true;
+            this._panX = this._dragStartPanX + dx;
+            this._panY = this._dragStartPanY + dy;
+            this.drawImmediate();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (this._isDragging) {
+                this._isDragging = false;
+                this.canvas.style.cursor = 'crosshair';
+            }
+        });
+
+        // --- Zoom (scroll wheel) ---
+        this.canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
             const rect = this.canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+
+            const oldZoom = this._zoom;
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            this._zoom = Math.max(0.2, Math.min(5, this._zoom * delta));
+
+            // Zoom toward mouse position
+            this._panX = mx - (mx - this._panX) * (this._zoom / oldZoom);
+            this._panY = my - (my - this._panY) * (this._zoom / oldZoom);
+
+            this.drawImmediate();
+        }, { passive: false });
+
+        // --- Hover (mousemove) ---
+        this.canvas.addEventListener('mousemove', (e) => {
+            if (this._isDragging) return;
+
+            const rect = this.canvas.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+            const { x, y } = screenToWorld(sx, sy);
 
             const node = this.getNodeAtPosition(x, y);
 
-            // Only update if node changed
             if (node !== lastNode) {
                 lastNode = node;
 
                 if (node) {
                     this.canvas.style.cursor = 'pointer';
 
-                    // Debounce DOM updates to prevent excessive reflows
-                    if (updateTimeout) {
-                        clearTimeout(updateTimeout);
-                    }
+                    if (updateTimeout) clearTimeout(updateTimeout);
                     updateTimeout = setTimeout(() => {
                         if (!updateScheduled) {
                             updateScheduled = true;
@@ -350,7 +414,7 @@ class BTreeVisualizer {
                                 updateScheduled = false;
                             });
                         }
-                    }, 50); // 50ms debounce
+                    }, 50);
                 } else {
                     this.hideNodeInfo();
                     this.canvas.style.cursor = 'crosshair';
@@ -358,10 +422,14 @@ class BTreeVisualizer {
             }
         }, { passive: true });
 
+        // --- Click ---
         this.canvas.addEventListener('click', (e) => {
+            if (this._dragMoved) return; // was a drag, not a click
+
             const rect = this.canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+            const { x, y } = screenToWorld(sx, sy);
 
             const node = this.getNodeAtPosition(x, y);
             if (node) {
@@ -712,15 +780,19 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
 
-        // Early exit if no nodes to draw
-        if (this.nodes.size === 0) {
-            // Record frame time even for empty frames
+        // Early exit if no nodes to draw in btree mode
+        if (this.viewMode === 'btree' && this.nodes.size === 0) {
             const renderTime = performance.now() - startTime;
             if (typeof perfMonitor !== 'undefined') {
                 perfMonitor.recordFrame(renderTime);
             }
             return;
         }
+
+        // Apply pan/zoom transform
+        this.ctx.save();
+        this.ctx.translate(this._panX, this._panY);
+        this.ctx.scale(this._zoom, this._zoom);
 
         // Batch all stroke/fillStyle changes to minimize context state changes
         // Draw all connections first (same color/style)
@@ -874,6 +946,9 @@ class BTreeVisualizer {
                 this._pageCountThrottled = false;
             });
         }
+
+        // Restore pan/zoom transform
+        this.ctx.restore();
 
         // Track frame time for performance monitoring
         this._frameTime = performance.now() - startTime;
@@ -1213,6 +1288,10 @@ class BTreeVisualizer {
         this.animations = [];
         this.highlightedNodes.clear();
         this._layoutCache.clear();
+        // Reset pan/zoom
+        this._panX = 0;
+        this._panY = 0;
+        this._zoom = 1;
         // Hide VDBE controls
         const vdbeCtrl = document.getElementById('vdbe-controls');
         if (vdbeCtrl) vdbeCtrl.classList.add('hidden');
@@ -1723,6 +1802,11 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
+        // Apply pan/zoom for parse tree content
+        this.ctx.save();
+        this.ctx.translate(this._panX, this._panY);
+        this.ctx.scale(this._zoom, this._zoom);
+
         // Show waiting message if no SQL yet
         if (waiting || !this.currentSQL) {
             this.ctx.fillStyle = this.colors.text;
@@ -1770,6 +1854,7 @@ class BTreeVisualizer {
         this.ctx.textBaseline = 'bottom';
         this.ctx.textAlign = 'center';
         this.ctx.fillText(`${this.parseTokens.length} tokens parsed | ${this.parseTree.children.length} statement(s)`, width / 2, height - 8);
+        this.ctx.restore(); // end pan/zoom
     }
 
     /**
@@ -1999,6 +2084,11 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
+        // Apply pan/zoom for VDBE content
+        this.ctx.save();
+        this.ctx.translate(this._panX, this._panY);
+        this.ctx.scale(this._zoom, this._zoom);
+
         // Draw title and state (compact)
         this.ctx.fillStyle = this.colors.text;
         this.ctx.font = 'bold 13px sans-serif';
@@ -2161,5 +2251,6 @@ class BTreeVisualizer {
             : '';
         this.ctx.textAlign = 'left';
         this.ctx.fillText(countText + scrollText, textX - 10, height - 20);
+        this.ctx.restore(); // end pan/zoom
     }
 }
