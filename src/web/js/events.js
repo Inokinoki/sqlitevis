@@ -344,3 +344,12 @@ const eventManager = new EventManager();
 window.sqliteVisEventHandler = (eventType, dataJson) => {
     eventManager.handleEvent(eventType, dataJson);
 };
+
+/**
+ * Shared utility: escape HTML special characters
+ */
+function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? 'NULL' : String(s);
+    return d.innerHTML;
+}

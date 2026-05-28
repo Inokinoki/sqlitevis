@@ -201,6 +201,21 @@ class BTreeVisualizer {
         this.levelHeight = 80;
         this.horizontalSpacing = 30;
 
+        // AST node type colors (class-level constant)
+        this._astColorMap = {
+            'SELECT': '#7c3aed',
+            'INSERT': '#2563eb',
+            'CREATE': '#0891b2',
+            'UPDATE': '#d97706',
+            'DELETE': '#dc2626',
+            'SQL': '#334155',
+        };
+
+        // SQL clause boundary keywords (used by parser)
+        this._clauseBoundaries = ['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING'];
+        this._joinBoundaries = ['JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
+        this._postFromBoundaries = ['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
+
         // Pan & zoom state
         this._panX = 0;
         this._panY = 0;
@@ -342,6 +357,28 @@ class BTreeVisualizer {
             x: (sx - this._panX) / this._zoom,
             y: (sy - this._panY) / this._zoom
         };
+    }
+
+    /**
+     * Compute display label for an AST node (single source of truth)
+     */
+    _astLabel(node) {
+        return node.type === node.text ? node.type :
+               node.text.length > 30 ? node.type + ': ' + node.text.substring(0, 27) + '...' :
+               node.type + ': ' + node.text;
+    }
+
+    /**
+     * Brief flash highlight on pages (unified animation helper)
+     */
+    _flashHighlight(pages, durationMs) {
+        if (!this.showTransitions) return;
+        for (const p of pages) this.highlightedNodes.add(p);
+        this.draw();
+        setTimeout(() => {
+            for (const p of pages) this.highlightedNodes.delete(p);
+            this.draw();
+        }, durationMs);
     }
 
     /**
@@ -766,12 +803,13 @@ class BTreeVisualizer {
      * Create a hash of current visual state to detect changes
      */
     _createStateHash() {
+        const panZoom = `${this._panX},${this._panY},${this._zoom}`;
         if (this.viewMode === 'btree') {
-            return `btree-${this.nodes.size}-${Array.from(this.nodes.keys()).join('-')}-${Array.from(this.highlightedNodes).join('-')}`;
+            return `btree-${this.nodes.size}-${Array.from(this.nodes.keys()).join('-')}-${Array.from(this.highlightedNodes).join('-')}-${panZoom}`;
         } else if (this.viewMode === 'parse') {
-            return `parse-${this.parseTokens.length}-${this.currentSQL}`;
+            return `parse-${this.parseTokens.length}-${this.currentSQL}-${panZoom}`;
         } else if (this.viewMode === 'vdbe') {
-            return `vdbe-${this.vdbeOpcodes.length}-${this.vdbeCurrentPc}`;
+            return `vdbe-${this.vdbeOpcodes.length}-${this.vdbeCurrentPc}-${panZoom}`;
         }
         return this.viewMode;
     }
@@ -1167,9 +1205,7 @@ class BTreeVisualizer {
     }
 
     _escapeHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s == null ? 'NULL' : String(s);
-        return d.innerHTML;
+        return escapeHtml(s);
     }
 
     /**
@@ -1194,50 +1230,21 @@ class BTreeVisualizer {
      * Uses minimal highlighting instead of full animation
      */
     animateInsertion(pageNum, cellIdx) {
-        if (!this.showTransitions) return;
-
-        // Just highlight, no animation loop
-        this.highlightedNodes.add(pageNum);
-        this.draw();
-
-        // Quick flash then remove (200ms instead of 500ms)
-        setTimeout(() => {
-            this.highlightedNodes.delete(pageNum);
-            this.draw();
-        }, 200);
+        this._flashHighlight([pageNum], 200);
     }
 
     /**
      * Animate deletion - SIMPLIFIED for performance
      */
     animateDeletion(pageNum, cellIdx) {
-        if (!this.showTransitions) return;
-
-        this.highlightedNodes.add(pageNum);
-        this.draw();
-
-        setTimeout(() => {
-            this.highlightedNodes.delete(pageNum);
-            this.draw();
-        }, 200);
+        this._flashHighlight([pageNum], 200);
     }
 
     /**
      * Animate split - SIMPLIFIED for performance
      */
     animateSplit(originalPage, newPage, splitCell) {
-        if (!this.showTransitions) return;
-
-        this.highlightedNodes.add(originalPage);
-        this.highlightedNodes.add(newPage);
-        this.draw();
-
-        // Reduced from 1000ms to 300ms for snappier feel
-        setTimeout(() => {
-            this.highlightedNodes.delete(originalPage);
-            this.highlightedNodes.delete(newPage);
-            this.draw();
-        }, 300);
+        this._flashHighlight([originalPage, newPage], 300);
     }
 
     /**
@@ -1547,15 +1554,16 @@ class BTreeVisualizer {
             if (isKeyword('FROM')) {
                 advance();
                 const fromNode = { type: 'from_clause', text: 'FROM', children: [] };
+                const CB = this._postFromBoundaries;
+                const JB = this._joinBoundaries;
 
-                const fromItems = collectUntil(['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS', 'ON']);
+                const fromItems = collectUntil([...CB, 'ON']);
                 fromNode.children.push({ type: 'from', text: fromItems.map(c => c.text).join(' '), children: [] });
 
                 // Handle JOINs as children of FROM
-                const joinKws = ['JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
-                while (pos < tokens.length && joinKws.some(kw => isKeyword(kw))) {
+                while (pos < tokens.length && JB.some(kw => isKeyword(kw))) {
                     const joinParts = [];
-                    while (pos < tokens.length && ['LEFT', 'RIGHT', 'INNER', 'CROSS', 'OUTER', 'JOIN'].some(kw => isKeyword(kw))) {
+                    while (pos < tokens.length && [...JB, 'OUTER', 'JOIN'].some(kw => isKeyword(kw))) {
                         joinParts.push(advance().text.toUpperCase());
                     }
                     const joinType = joinParts.includes('LEFT') ? 'LEFT JOIN' :
@@ -1563,13 +1571,13 @@ class BTreeVisualizer {
                                      joinParts.includes('INNER') ? 'INNER JOIN' :
                                      joinParts.includes('CROSS') ? 'CROSS JOIN' : 'JOIN';
 
-                    const joinTableItems = collectUntil(['ON', 'WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS']);
+                    const joinTableItems = collectUntil(['ON', ...CB]);
                     const joinNode = { type: 'join', text: joinType + ' ' + joinTableItems.map(c => c.text).join(' '), children: [] };
 
                     // ON condition as child of join
                     if (isKeyword('ON')) {
                         advance();
-                        const onItems = collectUntil(['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS']);
+                        const onItems = collectUntil(CB);
                         joinNode.children.push({ type: 'on', text: onItems.map(c => c.text).join(' '), children: [] });
                     }
                     fromNode.children.push(joinNode);
@@ -1580,7 +1588,7 @@ class BTreeVisualizer {
             // WHERE
             if (isKeyword('WHERE')) {
                 advance();
-                const whereItems = collectUntil(['ORDER', 'LIMIT', 'GROUP', 'HAVING']);
+                const whereItems = collectUntil(this._clauseBoundaries);
                 node.children.push({ type: 'where', text: whereItems.map(c => c.text).join(' '), children: [] });
             }
 
@@ -1889,21 +1897,12 @@ class BTreeVisualizer {
 
         // Measure node text width (compact, not canvas-filling)
         const measureTextW = (node) => {
-            const label = node.type === node.text ? node.type :
-                          node.text.length > 30 ? node.type + ': ' + node.text.substring(0, 27) + '...' :
-                          node.type + ': ' + node.text;
-            this.ctx.font = (colorMap[node.type] !== undefined) ? 'bold 11px sans-serif' : '10px sans-serif';
+            const label = this._astLabel(node);
+            this.ctx.font = (this._astColorMap[node.type] !== undefined) ? 'bold 11px sans-serif' : '10px sans-serif';
             return this.ctx.measureText(label).width + 20; // 10px padding each side
         };
 
-        const colorMap = {
-            'SELECT': '#7c3aed',
-            'INSERT': '#2563eb',
-            'CREATE': '#0891b2',
-            'UPDATE': '#d97706',
-            'DELETE': '#dc2626',
-            'SQL': '#334155',
-        };
+        const colorMap = this._astColorMap;
 
         // Measure subtree width bottom-up
         const measureNode = (node) => {
@@ -1971,9 +1970,7 @@ class BTreeVisualizer {
                           isClause ? clauseColor :
                           leafColor;
 
-            const label = node.type === node.text ? node.type :
-                          node.text.length > 30 ? node.type + ': ' + node.text.substring(0, 27) + '...' :
-                          node.type + ': ' + node.text;
+            const label = this._astLabel(node);
 
             const x = node._x;
             const y = node._y;
@@ -2118,6 +2115,7 @@ class BTreeVisualizer {
         // If we have individual opcodes, draw them
         if (this.vdbeOpcodes.length > 0) {
             this._drawVdbeOpcodes(width, height);
+            this.ctx.restore();
             return;
         }
 
@@ -2126,7 +2124,7 @@ class BTreeVisualizer {
             this.ctx.fillStyle = this.colors.textLight;
             this.ctx.font = '13px sans-serif';
             this.ctx.fillText('Execute SQL to see VDBE execution trace', width / 2, height / 2);
-            this.ctx.restore(); // restore pan/zoom
+            this.ctx.restore();
             return;
         }
 
@@ -2260,8 +2258,7 @@ class BTreeVisualizer {
             this.ctx.fillText(text, textX, y + 4);
         }
 
-        // Draw stats at bottom (outside pan/zoom, fixed position)
-        this.ctx.restore(); // end pan/zoom
+        // Draw stats at bottom (inside pan/zoom, _drawVdbeOpcodes does not own the save/restore)
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
         const opsFiltered = this.vdbeOpcodes.filter(o => o);

@@ -411,9 +411,7 @@ class SQLiteVisApp {
     }
 
     _escapeHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s == null ? 'NULL' : String(s);
-        return d.innerHTML;
+        return escapeHtml(s);
     }
 
     _executeOne(sql) {
