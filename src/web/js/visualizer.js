@@ -1329,7 +1329,7 @@ class BTreeVisualizer {
             return;
         }
 
-        // Initialize parse tree (always collect data regardless of view mode)
+        // Accumulate parse tree across statements (don't reset if same batch)
         this.currentSQL = sql;
         this.parseTokens = [];
         this.parseTree = this.buildParseTree(sql);
@@ -1419,12 +1419,13 @@ class BTreeVisualizer {
         };
         const isKeyword = (kw) => peek() && peek().type === 'keyword' && peek().text.toUpperCase() === kw;
 
-        // Collect tokens until a boundary keyword
+        // Collect tokens until a boundary keyword or semicolon
         const collectUntil = (stopWords) => {
             const items = [];
             while (pos < tokens.length) {
                 const t = peek();
                 if (!t) break;
+                if (t.text === ';') break;  // always stop at semicolons
                 if (t.type === 'keyword' && stopWords.some(w => t.text.toUpperCase() === w)) break;
                 advance();
                 items.push(t);
@@ -1445,15 +1446,40 @@ class BTreeVisualizer {
             // Columns
             const cols = collectUntil(['FROM', 'WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING']);
             if (cols.length > 0) {
-                const colNode = { type: 'columns', text: cols.map(c => c.text).join(' '), children: [] };
-                node.children.push(colNode);
+                node.children.push({ type: 'columns', text: cols.map(c => c.text).join(' '), children: [] });
             }
 
-            // FROM
+            // FROM + JOINs as a nested group
             if (isKeyword('FROM')) {
                 advance();
-                const fromItems = collectUntil(['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'ON']);
-                const fromNode = { type: 'from', text: fromItems.map(c => c.text).join(' '), children: [] };
+                const fromNode = { type: 'from_clause', text: 'FROM', children: [] };
+
+                const fromItems = collectUntil(['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS', 'ON']);
+                fromNode.children.push({ type: 'from', text: fromItems.map(c => c.text).join(' '), children: [] });
+
+                // Handle JOINs as children of FROM
+                const joinKws = ['JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
+                while (pos < tokens.length && joinKws.some(kw => isKeyword(kw))) {
+                    const joinParts = [];
+                    while (pos < tokens.length && ['LEFT', 'RIGHT', 'INNER', 'CROSS', 'OUTER', 'JOIN'].some(kw => isKeyword(kw))) {
+                        joinParts.push(advance().text.toUpperCase());
+                    }
+                    const joinType = joinParts.includes('LEFT') ? 'LEFT JOIN' :
+                                     joinParts.includes('RIGHT') ? 'RIGHT JOIN' :
+                                     joinParts.includes('INNER') ? 'INNER JOIN' :
+                                     joinParts.includes('CROSS') ? 'CROSS JOIN' : 'JOIN';
+
+                    const joinTableItems = collectUntil(['ON', 'WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS']);
+                    const joinNode = { type: 'join', text: joinType + ' ' + joinTableItems.map(c => c.text).join(' '), children: [] };
+
+                    // ON condition as child of join
+                    if (isKeyword('ON')) {
+                        advance();
+                        const onItems = collectUntil(['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS']);
+                        joinNode.children.push({ type: 'on', text: onItems.map(c => c.text).join(' '), children: [] });
+                    }
+                    fromNode.children.push(joinNode);
+                }
                 node.children.push(fromNode);
             }
 
@@ -1461,8 +1487,7 @@ class BTreeVisualizer {
             if (isKeyword('WHERE')) {
                 advance();
                 const whereItems = collectUntil(['ORDER', 'LIMIT', 'GROUP', 'HAVING']);
-                const whereNode = { type: 'where', text: whereItems.map(c => c.text).join(' '), children: [] };
-                node.children.push(whereNode);
+                node.children.push({ type: 'where', text: whereItems.map(c => c.text).join(' '), children: [] });
             }
 
             // GROUP BY
@@ -1471,6 +1496,13 @@ class BTreeVisualizer {
                 advance(); // BY
                 const items = collectUntil(['HAVING', 'ORDER', 'LIMIT']);
                 node.children.push({ type: 'group_by', text: items.map(c => c.text).join(' '), children: [] });
+            }
+
+            // HAVING
+            if (isKeyword('HAVING')) {
+                advance();
+                const items = collectUntil(['ORDER', 'LIMIT']);
+                node.children.push({ type: 'having', text: items.map(c => c.text).join(' '), children: [] });
             }
 
             // ORDER BY
@@ -1640,6 +1672,10 @@ class BTreeVisualizer {
             while (pos < tokens.length && tokens[pos].text === ';') pos++;
         }
 
+        // If only one statement, return it directly (skip "SQL" root wrapper)
+        if (tree.children.length === 1) {
+            return tree.children[0];
+        }
         return tree;
     }
 
@@ -1741,104 +1777,99 @@ class BTreeVisualizer {
      */
     _layoutAndDrawAST(tree, canvasWidth, canvasHeight) {
         const startY = 50;
-        const nodeH = 36;
-        const vGap = 18;
-        const hGap = 16;
+        const nodeH = 28;
+        const vGap = 12;
+        const hGap = 12;
         const padding = 20;
 
-        // If multiple statements, treat each as a top-level subtree
-        const stmts = tree.children;
-        if (stmts.length === 0) return;
+        // Determine if tree has multiple statements (SQL root) or single
+        const isMultiStmt = tree.type === 'SQL' && tree.children && tree.children.length > 1;
+        const stmts = isMultiStmt ? tree.children : [tree];
 
-        // For each statement, calculate its subtree width
-        const measureNode = (node) => {
-            const textW = this.ctx.measureText(node.type + (node.text !== node.type ? ': ' + node.text : '')).width + 24;
-            if (!node.children || node.children.length === 0) {
-                return { width: Math.max(textW, 60), height: nodeH };
-            }
-            let childTotalW = 0;
-            let maxChildH = 0;
-            for (const child of node.children) {
-                const m = measureNode(child);
-                childTotalW += m.width;
-                maxChildH = Math.max(maxChildH, m.height);
-            }
-            childTotalW += (node.children.length - 1) * hGap;
-            return {
-                width: Math.max(textW, childTotalW),
-                height: nodeH + vGap + maxChildH
-            };
+        // Measure node text width (compact, not canvas-filling)
+        const measureTextW = (node) => {
+            const label = node.type === node.text ? node.type :
+                          node.text.length > 30 ? node.type + ': ' + node.text.substring(0, 27) + '...' :
+                          node.type + ': ' + node.text;
+            this.ctx.font = (colorMap[node.type] !== undefined) ? 'bold 11px sans-serif' : '10px sans-serif';
+            return this.ctx.measureText(label).width + 20; // 10px padding each side
         };
 
-        // Assign positions (x, y) to each node
-        const assignPositions = (node, x, y, availWidth) => {
-            node._x = x;
+        const colorMap = {
+            'SELECT': '#7c3aed',
+            'INSERT': '#2563eb',
+            'CREATE': '#0891b2',
+            'UPDATE': '#d97706',
+            'DELETE': '#dc2626',
+            'SQL': '#334155',
+        };
+
+        // Measure subtree width bottom-up
+        const measureNode = (node) => {
+            const textW = Math.max(measureTextW(node), 50);
+            node._textW = textW;
+            if (!node.children || node.children.length === 0) {
+                node._subtreeW = textW;
+                node._subtreeH = nodeH;
+                return;
+            }
+            for (const child of node.children) measureNode(child);
+            const childTotalW = node.children.reduce((s, c) => s + c._subtreeW, 0) + (node.children.length - 1) * hGap;
+            node._subtreeW = Math.max(textW, childTotalW);
+            const maxChildH = node.children.reduce((m, c) => Math.max(m, c._subtreeH), 0);
+            node._subtreeH = nodeH + vGap + maxChildH;
+        };
+
+        // Assign positions: node width = text width, centered in subtree
+        const assignPositions = (node, x, y) => {
+            // This node is centered within its subtree allocation
+            node._x = x + (node._subtreeW - node._textW) / 2;
             node._y = y;
-            node._w = availWidth;
+            node._w = node._textW;
 
             if (!node.children || node.children.length === 0) return;
 
-            // Measure each child
-            const childMeasures = node.children.map(c => measureNode(c));
-            let totalChildW = childMeasures.reduce((s, m) => s + m.width, 0) + (node.children.length - 1) * hGap;
-            if (totalChildW > availWidth) {
-                // Scale down — just distribute evenly
-                const perChild = (availWidth - (node.children.length - 1) * hGap) / node.children.length;
-                let cx = x;
-                for (let i = 0; i < node.children.length; i++) {
-                    assignPositions(node.children[i], cx, y + nodeH + vGap, perChild);
-                    cx += perChild + hGap;
-                }
-            } else {
-                // Center children within available width
-                let cx = x + (availWidth - totalChildW) / 2;
-                for (let i = 0; i < node.children.length; i++) {
-                    assignPositions(node.children[i], cx, y + nodeH + vGap, childMeasures[i].width);
-                    cx += childMeasures[i].width + hGap;
-                }
+            // Layout children side by side within subtree width
+            const childY = y + nodeH + vGap;
+            let cx = x;
+            for (const child of node.children) {
+                assignPositions(child, cx, childY);
+                cx += child._subtreeW + hGap;
             }
         };
 
-        // Layout each statement side by side or stacked
-        this.ctx.font = 'bold 11px sans-serif';
-        if (stmts.length === 1) {
-            assignPositions(stmts[0], padding, startY, canvasWidth - padding * 2);
-        } else {
-            // Stack statements vertically
+        // Layout statements
+        for (const stmt of stmts) measureNode(stmt);
+
+        const totalWidth = stmts.reduce((s, st) => s + st._subtreeW, 0) + (stmts.length - 1) * hGap * 2;
+        const offsetX = Math.max(padding, (canvasWidth - totalWidth) / 2);
+
+        if (isMultiStmt) {
+            let cx = offsetX;
             let currentY = startY;
             for (const stmt of stmts) {
-                assignPositions(stmt, padding, currentY, canvasWidth - padding * 2);
-                const m = measureNode(stmt);
-                currentY += m.height + vGap * 2;
+                assignPositions(stmt, cx, currentY);
+                cx += stmt._subtreeW + hGap * 2;
             }
+        } else {
+            assignPositions(stmts[0], offsetX, startY);
         }
 
-        // Draw all nodes and connections
-        const colorMap = {
-            'SELECT': '#7c3aed',   // purple
-            'INSERT': '#2563eb',   // blue
-            'CREATE': '#0891b2',   // cyan
-            'UPDATE': '#d97706',   // amber
-            'DELETE': '#dc2626',   // red
-            'SQL': '#334155',      // dark gray
-        };
+        // Draw
         const clauseColor = '#64748b';
         const leafColor = '#059669';
 
         const drawASTNode = (node) => {
             const isTopLevel = colorMap[node.type] !== undefined;
-            const isClause = ['columns', 'from', 'where', 'values', 'set', 'table',
-                              'group_by', 'order_by', 'limit', 'modifier'].includes(node.type);
-            const isLeaf = !node.children || node.children.length === 0;
+            const isClause = ['columns', 'from', 'from_clause', 'where', 'values', 'set', 'table',
+                              'group_by', 'order_by', 'limit', 'modifier', 'join', 'on', 'having'].includes(node.type);
             const isColDef = node.type === 'column_def';
 
-            // Color
             let bgColor = isTopLevel ? colorMap[node.type] :
                           isColDef ? '#475569' :
                           isClause ? clauseColor :
                           leafColor;
 
-            // Label
             const label = node.type === node.text ? node.type :
                           node.text.length > 30 ? node.type + ': ' + node.text.substring(0, 27) + '...' :
                           node.type + ': ' + node.text;
@@ -1847,8 +1878,8 @@ class BTreeVisualizer {
             const y = node._y;
             const w = node._w;
 
-            // Draw connections to children first
-            if (node.children) {
+            // Connections to children
+            if (node.children && node.children.length > 0) {
                 for (const child of node.children) {
                     this.ctx.strokeStyle = '#cbd5e1';
                     this.ctx.lineWidth = 1.5;
@@ -1859,38 +1890,29 @@ class BTreeVisualizer {
                 }
             }
 
-            // Draw node box
+            // Node box
             this.ctx.fillStyle = bgColor;
             this.roundRect(x, y, w, nodeH, 5);
             this.ctx.fill();
-
-            // Border
             this.ctx.strokeStyle = 'rgba(255,255,255,0.15)';
             this.ctx.lineWidth = 1;
             this.roundRect(x, y, w, nodeH, 5);
             this.ctx.stroke();
 
-            // Text
+            // Text — fits within measured width, no truncation needed
             this.ctx.fillStyle = '#ffffff';
             this.ctx.font = isTopLevel ? 'bold 11px sans-serif' : '10px sans-serif';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            const displayLabel = label.length > Math.floor(w / 7) + 5
-                ? label.substring(0, Math.floor(w / 7) + 3) + '...'
-                : label;
-            this.ctx.fillText(displayLabel, x + w / 2, y + nodeH / 2);
+            this.ctx.fillText(label, x + w / 2, y + nodeH / 2);
 
-            // Recurse children
+            // Recurse
             if (node.children) {
-                for (const child of node.children) {
-                    drawASTNode(child);
-                }
+                for (const child of node.children) drawASTNode(child);
             }
         };
 
-        for (const stmt of stmts) {
-            drawASTNode(stmt);
-        }
+        for (const stmt of stmts) drawASTNode(stmt);
     }
 
     /**
