@@ -322,7 +322,26 @@ class BTreeVisualizer {
             this.intersectionObserver.disconnect();
             this.intersectionObserver = null;
         }
+        // Remove window event listeners added in bindEvents
+        if (this._windowMousemoveHandler) {
+            window.removeEventListener('mousemove', this._windowMousemoveHandler);
+            this._windowMousemoveHandler = null;
+        }
+        if (this._windowMouseupHandler) {
+            window.removeEventListener('mouseup', this._windowMouseupHandler);
+            this._windowMouseupHandler = null;
+        }
         this._animationRunning = false;
+    }
+
+    /**
+     * Convert screen coordinates to world coordinates (accounts for pan/zoom)
+     */
+    _screenToWorld(sx, sy) {
+        return {
+            x: (sx - this._panX) / this._zoom,
+            y: (sy - this._panY) / this._zoom
+        };
     }
 
     /**
@@ -333,12 +352,6 @@ class BTreeVisualizer {
         let lastNode = null;
         let updateScheduled = false;
         let updateTimeout = null;
-
-        // Helper: screen coords to world coords
-        const screenToWorld = (sx, sy) => ({
-            x: (sx - this._panX) / this._zoom,
-            y: (sy - this._panY) / this._zoom
-        });
 
         // --- Pan (drag) ---
         this.canvas.addEventListener('mousedown', (e) => {
@@ -353,22 +366,24 @@ class BTreeVisualizer {
             }
         });
 
-        window.addEventListener('mousemove', (e) => {
+        this._windowMousemoveHandler = (e) => {
             if (!this._isDragging) return;
             const dx = e.clientX - this._dragStartX;
             const dy = e.clientY - this._dragStartY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) this._dragMoved = true;
             this._panX = this._dragStartPanX + dx;
             this._panY = this._dragStartPanY + dy;
-            this.drawImmediate();
-        });
+            this.draw(); // throttled via rAF instead of drawImmediate()
+        };
+        window.addEventListener('mousemove', this._windowMousemoveHandler);
 
-        window.addEventListener('mouseup', () => {
+        this._windowMouseupHandler = () => {
             if (this._isDragging) {
                 this._isDragging = false;
                 this.canvas.style.cursor = 'crosshair';
             }
-        });
+        };
+        window.addEventListener('mouseup', this._windowMouseupHandler);
 
         // --- Zoom (scroll wheel) ---
         this.canvas.addEventListener('wheel', (e) => {
@@ -395,7 +410,7 @@ class BTreeVisualizer {
             const rect = this.canvas.getBoundingClientRect();
             const sx = e.clientX - rect.left;
             const sy = e.clientY - rect.top;
-            const { x, y } = screenToWorld(sx, sy);
+            const { x, y } = this._screenToWorld(sx, sy);
 
             const node = this.getNodeAtPosition(x, y);
 
@@ -429,7 +444,7 @@ class BTreeVisualizer {
             const rect = this.canvas.getBoundingClientRect();
             const sx = e.clientX - rect.left;
             const sy = e.clientY - rect.top;
-            const { x, y } = screenToWorld(sx, sy);
+            const { x, y } = this._screenToWorld(sx, sy);
 
             const node = this.getNodeAtPosition(x, y);
             if (node) {
@@ -1802,12 +1817,7 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
-        // Apply pan/zoom for parse tree content
-        this.ctx.save();
-        this.ctx.translate(this._panX, this._panY);
-        this.ctx.scale(this._zoom, this._zoom);
-
-        // Show waiting message if no SQL yet
+        // Show waiting message if no SQL yet (no pan/zoom needed for static text)
         if (waiting || !this.currentSQL) {
             this.ctx.fillStyle = this.colors.text;
             this.ctx.font = 'bold 16px sans-serif';
@@ -1823,7 +1833,7 @@ class BTreeVisualizer {
             return;
         }
 
-        // Title
+        // Draw title and SQL text outside pan/zoom (fixed position)
         this.ctx.fillStyle = this.colors.text;
         this.ctx.font = 'bold 13px sans-serif';
         this.ctx.textAlign = 'center';
@@ -1838,6 +1848,11 @@ class BTreeVisualizer {
             : this.currentSQL;
         this.ctx.fillText(displaySQL, width / 2, 28);
 
+        // Apply pan/zoom for parse tree content
+        this.ctx.save();
+        this.ctx.translate(this._panX, this._panY);
+        this.ctx.scale(this._zoom, this._zoom);
+
         // Build AST if not built yet
         if (!this.parseTree || this.parseTree.children.length === 0) {
             this.parseTree = this.buildParseTree(this.currentSQL);
@@ -1848,13 +1863,14 @@ class BTreeVisualizer {
             this._layoutAndDrawAST(this.parseTree, width, height);
         }
 
-        // Token count at bottom
+        this.ctx.restore(); // end pan/zoom
+
+        // Token count at bottom (outside pan/zoom, fixed position)
         this.ctx.font = '11px sans-serif';
         this.ctx.fillStyle = '#10b981';
         this.ctx.textBaseline = 'bottom';
         this.ctx.textAlign = 'center';
         this.ctx.fillText(`${this.parseTokens.length} tokens parsed | ${this.parseTree.children.length} statement(s)`, width / 2, height - 8);
-        this.ctx.restore(); // end pan/zoom
     }
 
     /**
@@ -2084,12 +2100,7 @@ class BTreeVisualizer {
         this.ctx.fillStyle = this.colors.background;
         this.ctx.fillRect(0, 0, width, height);
 
-        // Apply pan/zoom for VDBE content
-        this.ctx.save();
-        this.ctx.translate(this._panX, this._panY);
-        this.ctx.scale(this._zoom, this._zoom);
-
-        // Draw title and state (compact)
+        // Draw title and state outside pan/zoom (fixed position)
         this.ctx.fillStyle = this.colors.text;
         this.ctx.font = 'bold 13px sans-serif';
         this.ctx.textAlign = 'center';
@@ -2098,6 +2109,11 @@ class BTreeVisualizer {
         this.ctx.font = '11px sans-serif';
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.fillText(`${state} — ${info}`, width / 2, 30);
+
+        // Apply pan/zoom for VDBE content
+        this.ctx.save();
+        this.ctx.translate(this._panX, this._panY);
+        this.ctx.scale(this._zoom, this._zoom);
 
         // If we have individual opcodes, draw them
         if (this.vdbeOpcodes.length > 0) {
@@ -2110,6 +2126,7 @@ class BTreeVisualizer {
             this.ctx.fillStyle = this.colors.textLight;
             this.ctx.font = '13px sans-serif';
             this.ctx.fillText('Execute SQL to see VDBE execution trace', width / 2, height / 2);
+            this.ctx.restore(); // restore pan/zoom
             return;
         }
 
@@ -2166,6 +2183,8 @@ class BTreeVisualizer {
         this.ctx.textAlign = 'center';
         const summaryY = height - 30;
         this.ctx.fillText(`Total: ${totalTraces} programs executed`, width / 2, summaryY);
+
+        this.ctx.restore(); // restore pan/zoom
     }
 
     _drawVdbeOpcodes(width, height) {
@@ -2241,7 +2260,8 @@ class BTreeVisualizer {
             this.ctx.fillText(text, textX, y + 4);
         }
 
-        // Draw stats at bottom
+        // Draw stats at bottom (outside pan/zoom, fixed position)
+        this.ctx.restore(); // end pan/zoom
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
         const opsFiltered = this.vdbeOpcodes.filter(o => o);
@@ -2251,6 +2271,5 @@ class BTreeVisualizer {
             : '';
         this.ctx.textAlign = 'left';
         this.ctx.fillText(countText + scrollText, textX - 10, height - 20);
-        this.ctx.restore(); // end pan/zoom
     }
 }
