@@ -216,6 +216,17 @@ class BTreeVisualizer {
         this._joinBoundaries = ['JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
         this._postFromBoundaries = ['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
 
+        // AST node clause types (for rendering)
+        this._astClauseTypes = new Set(['columns', 'from', 'from_clause', 'where', 'values', 'set', 'table',
+            'group_by', 'order_by', 'limit', 'modifier', 'join', 'on', 'having']);
+
+        // SQL keywords for tokenization (class-level to avoid rebuilding)
+        this._sqlKeywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
+            'CREATE', 'TABLE', 'DROP', 'ALTER', 'INDEX', 'AND', 'OR', 'NOT', 'NULL', 'INTEGER', 'TEXT',
+            'PRIMARY', 'KEY', 'REAL', 'INT', 'VARCHAR', 'CHAR', 'BLOB', 'IF', 'EXISTS', 'UNIQUE',
+            'ORDER', 'BY', 'ASC', 'DESC', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
+            'ON', 'AS', 'DISTINCT', 'GROUP', 'HAVING', 'UNION', 'ALL', 'LIKE', 'BETWEEN', 'IS', 'IN'];
+
         // Pan & zoom state
         this._panX = 0;
         this._panY = 0;
@@ -360,6 +371,20 @@ class BTreeVisualizer {
     }
 
     /**
+     * Schedule layout recalculation and draw (deduped via rAF)
+     */
+    _scheduleLayoutAndDraw() {
+        if (!this._layoutScheduled) {
+            this._layoutScheduled = true;
+            requestAnimationFrame(() => {
+                this.layout();
+                this._layoutScheduled = false;
+            });
+        }
+        this.draw();
+    }
+
+    /**
      * Compute display label for an AST node (single source of truth)
      */
     _astLabel(node) {
@@ -374,10 +399,10 @@ class BTreeVisualizer {
     _flashHighlight(pages, durationMs) {
         if (!this.showTransitions) return;
         for (const p of pages) this.highlightedNodes.add(p);
-        this.draw();
+        this.draw(); // immediate draw to show highlight
         setTimeout(() => {
             for (const p of pages) this.highlightedNodes.delete(p);
-            this.draw();
+            this.draw(); // redraw to remove highlight
         }, durationMs);
     }
 
@@ -539,15 +564,8 @@ class BTreeVisualizer {
         // Track this as the last accessed page
         this.lastAccessedPage = pageNum;
 
-        // Batch layout and draw calls - only schedule once
-        if (!this._layoutScheduled) {
-            this._layoutScheduled = true;
-            requestAnimationFrame(() => {
-                this.layout();
-                this._layoutScheduled = false;
-            });
-        }
-        this.draw();
+        // Batch layout and draw calls
+        this._scheduleLayoutAndDraw();
     }
 
     /**
@@ -577,15 +595,7 @@ class BTreeVisualizer {
             this.animateInsertion(pageNum, cellIdx);
         }
 
-        // Batch layout call
-        if (!this._layoutScheduled) {
-            this._layoutScheduled = true;
-            requestAnimationFrame(() => {
-                this.layout();
-                this._layoutScheduled = false;
-            });
-        }
-        this.draw();
+        this._scheduleLayoutAndDraw();
     }
 
     /**
@@ -601,15 +611,7 @@ class BTreeVisualizer {
 
         node.cells.splice(cellIdx, 1);
 
-        // Batch layout call
-        if (!this._layoutScheduled) {
-            this._layoutScheduled = true;
-            requestAnimationFrame(() => {
-                this.layout();
-                this._layoutScheduled = false;
-            });
-        }
-        this.draw();
+        this._scheduleLayoutAndDraw();
     }
 
     /**
@@ -657,15 +659,7 @@ class BTreeVisualizer {
             this.animateSplit(originalPage, newPage, splitCell);
         }
 
-        // Batch layout call
-        if (!this._layoutScheduled) {
-            this._layoutScheduled = true;
-            requestAnimationFrame(() => {
-                this.layout();
-                this._layoutScheduled = false;
-            });
-        }
-        this.draw();
+        this._scheduleLayoutAndDraw();
     }
 
     /**
@@ -909,9 +903,6 @@ class BTreeVisualizer {
         // Compact node sizing
         const headerH = 22;
         const bodyH = 18;
-        const getDynamicHeight = (node) => {
-            return headerH + bodyH;
-        };
 
         // Draw a single compact node
         const drawRichNode = (node) => {
@@ -1435,10 +1426,12 @@ class BTreeVisualizer {
         this.parseTokens = [];
         this.parseTree = this.buildParseTree(sql);
 
-        // Generate tokens from client-side tokenization
-        const tokens = this.tokenizeSQL(sql);
-        for (const t of tokens) {
-            this.parseTokens.push({ token: t.text, type: t.type });
+        // Generate tokens from the same tokenization used by buildParseTree
+        // (buildParseTree caches them in this._lastTokens)
+        if (this._lastTokens) {
+            for (const t of this._lastTokens) {
+                this.parseTokens.push({ token: t.text, type: t.type });
+            }
         }
 
         if (this.viewMode === 'parse') {
@@ -1507,6 +1500,7 @@ class BTreeVisualizer {
      */
     buildParseTree(sql) {
         const tokens = this.tokenizeSQL(sql);
+        this._lastTokens = tokens; // cache for showParseStart to avoid double tokenization
         if (tokens.length === 0) return { type: 'root', text: sql, children: [] };
 
         // Simple recursive descent parser
@@ -1786,11 +1780,7 @@ class BTreeVisualizer {
      */
     tokenizeSQL(sql) {
         const tokens = [];
-        const keywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
-            'CREATE', 'TABLE', 'DROP', 'ALTER', 'INDEX', 'AND', 'OR', 'NOT', 'NULL', 'INTEGER', 'TEXT',
-            'PRIMARY', 'KEY', 'REAL', 'INT', 'VARCHAR', 'CHAR', 'BLOB', 'IF', 'EXISTS', 'UNIQUE',
-            'ORDER', 'BY', 'ASC', 'DESC', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
-            'ON', 'AS', 'DISTINCT', 'GROUP', 'HAVING', 'UNION', 'ALL', 'LIKE', 'BETWEEN', 'IS', 'IN'];
+        const keywords = this._sqlKeywords;
         // Match: quoted strings, numbers, identifiers/keywords, operators, punctuation
         const regex = /'[^']*'|"[^"]*"|\d+(?:\.\d+)?|[A-Za-z_]\w*|[<>=!]+|[*,();]/g;
         let match;
@@ -1946,9 +1936,8 @@ class BTreeVisualizer {
 
         if (isMultiStmt) {
             let cx = offsetX;
-            let currentY = startY;
             for (const stmt of stmts) {
-                assignPositions(stmt, cx, currentY);
+                assignPositions(stmt, cx, startY);
                 cx += stmt._subtreeW + hGap * 2;
             }
         } else {
@@ -1961,8 +1950,7 @@ class BTreeVisualizer {
 
         const drawASTNode = (node) => {
             const isTopLevel = colorMap[node.type] !== undefined;
-            const isClause = ['columns', 'from', 'from_clause', 'where', 'values', 'set', 'table',
-                              'group_by', 'order_by', 'limit', 'modifier', 'join', 'on', 'having'].includes(node.type);
+            const isClause = this._astClauseTypes.has(node.type);
             const isColDef = node.type === 'column_def';
 
             let bgColor = isTopLevel ? colorMap[node.type] :
@@ -2202,10 +2190,7 @@ class BTreeVisualizer {
         viewportStart = Math.max(0, Math.min(viewportStart, this.vdbeOpcodes.length - maxVisibleOpcodes));
         const viewportEnd = Math.min(this.vdbeOpcodes.length, viewportStart + maxVisibleOpcodes);
 
-        const normalOpcodes = [];
-        const highlightedOpcode = [];
-        // Track previously executed opcodes (for step mode)
-        const executedOpcodes = [];
+        const allRows = [];
         let drawRow = 0;
 
         for (let i = viewportStart; i < viewportEnd; i++) {
@@ -2218,15 +2203,9 @@ class BTreeVisualizer {
             // In step mode, mark opcodes before current as "executed"
             const isExecuted = this.vdbeStepIndex >= 0 && i < this.vdbeStepIndex && this.vdbeOpcodes[i];
 
-            const opcodeData = { op, y, index: i };
-
-            if (isCurrent) {
-                highlightedOpcode.push(opcodeData);
-            } else if (isExecuted) {
-                executedOpcodes.push(opcodeData);
-            } else {
-                normalOpcodes.push(opcodeData);
-            }
+            // Tag category directly on the data object
+            const category = isCurrent ? 'highlight' : isExecuted ? 'executed' : 'normal';
+            allRows.push({ op, y, category });
         }
 
         // Pre-calculate positions and text
@@ -2236,19 +2215,15 @@ class BTreeVisualizer {
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'top';
 
-        // Merge and sort all opcodes by y position, then draw top-to-bottom
-        const allRows = [...normalOpcodes, ...executedOpcodes, ...highlightedOpcode].sort((a, b) => a.y - b.y);
-        for (const { op, y } of allRows) {
-            const isCurrent = highlightedOpcode.length > 0 && op === highlightedOpcode[0].op;
-            const isExecuted = executedOpcodes.some(e => e.op === op);
+        // Draw all rows (already in y-order)
+        for (const { op, y, category } of allRows) {
             const text = `[${op.pc}] ${op.opcode.padEnd(12)} P1=${String(op.p1).padStart(3)} P2=${String(op.p2).padStart(3)} P3=${String(op.p3).padStart(3)}`;
 
-            if (isCurrent) {
+            if (category === 'highlight') {
                 this.ctx.fillStyle = this.colors.nodeHighlight;
                 this.ctx.fillRect(textX - 10, y - 2, maxWidth, lineHeight - 2);
                 this.ctx.fillStyle = '#ffffff';
-            } else if (isExecuted) {
-                // Subtle highlight for already-executed opcodes
+            } else if (category === 'executed') {
                 this.ctx.fillStyle = '#e0f2fe';
                 this.ctx.fillRect(textX - 10, y - 2, maxWidth, lineHeight - 2);
                 this.ctx.fillStyle = '#0369a1';

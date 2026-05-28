@@ -188,8 +188,6 @@ class SQLiteVisApp {
                 this.visualizer.nodes.delete(e.data.page);
                 this.visualizer.layout();
                 this.visualizer.draw();
-                const el = document.getElementById('page-count');
-                if (el) el.textContent = this.visualizer.nodes.size;
             }
         });
 
