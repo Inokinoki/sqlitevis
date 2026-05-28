@@ -185,11 +185,7 @@ class SQLiteVisApp {
 
         eventManager.on(7, (e) => { // PAGE_FREE
             if (this.visualizer) {
-                this.visualizer.nodes.delete(e.data.page);
-                this.visualizer.layout();
-                this.visualizer.draw();
-                const el = document.getElementById('page-count');
-                if (el) el.textContent = this.visualizer.nodes.size;
+                this.visualizer.removePage(e.data.page);
             }
         });
 
@@ -365,10 +361,13 @@ class SQLiteVisApp {
         const stmts = this._splitStatements(sql);
         let lastOutput = null;
 
+        // Build parse tree once for the entire SQL batch
+        if (this.visualizer && stmts.length > 0) {
+            this.visualizer.showParseStart(sql.trim());
+        }
+
         for (const stmt of stmts) {
             if (!stmt.trim()) continue;
-            // Notify visualizer of each statement for parse tree visualization
-            if (this.visualizer) this.visualizer.showParseStart(stmt.trim());
             lastOutput = this._executeOne(stmt.trim());
             if (lastOutput && lastOutput.error) {
                 this.showHTMLOutput(
@@ -408,89 +407,13 @@ class SQLiteVisApp {
     }
 
     _escapeHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s == null ? 'NULL' : String(s);
-        return d.innerHTML;
-    }
-
-    _executeOne(sql) {
-        const mod = this.sqliteModule;
-        const trimmedSql = sql.trim();
-
-        try {
-            const sqlLen = mod.lengthBytesUTF8(trimmedSql) + 1;
-            const sqlPtr = mod._malloc(sqlLen);
-            mod.stringToUTF8(trimmedSql, sqlPtr, sqlLen);
-
-            const errorPtrPtr = mod._malloc(4);
-            mod.HEAP32[errorPtrPtr >> 2] = 0;
-
-            // Collect results via callback
-            let resultColumns = null;
-            let resultRows = [];
-            let hasResults = false;
-
-            const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
-                hasResults = true;
-                if (!resultColumns) {
-                    resultColumns = [];
-                    for (let i = 0; i < colCount; i++) {
-                        const namePtr = mod.HEAP32[(colNamesPtr >> 2) + i];
-                        resultColumns.push(mod.UTF8ToString(namePtr));
-                    }
-                }
-                const row = [];
-                for (let i = 0; i < colCount; i++) {
-                    const valPtr = mod.HEAP32[(colValuesPtr >> 2) + i];
-                    row.push(valPtr === 0 ? null : mod.UTF8ToString(valPtr));
-                }
-                resultRows.push(row);
-                return 0;
-            };
-            const callbackPtr = mod.addFunction(callback, 'iiiii');
-
-            const result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
-            mod.removeFunction(callbackPtr);
-            mod._free(sqlPtr);
-
-            if (result !== 0) {
-                const errorMsgPtr = mod.HEAP32[errorPtrPtr >> 2];
-                let errMsg = 'Error code: ' + result;
-                if (errorMsgPtr) errMsg = mod.UTF8ToString(errorMsgPtr);
-                mod._free(errorPtrPtr);
-                return { error: errMsg };
-            }
-
-            mod._free(errorPtrPtr);
-
-            if (hasResults && resultColumns) {
-                return { table: this._buildTable(resultColumns, resultRows) };
-            }
-
-            return { message: 'SQL executed successfully' };
-        } catch (error) {
-            return { error: error.message };
-        }
-    }
-
-
-    _buildTable(columns, rows) {
-        const parts = ['<table><tr>'];
-        for (const col of columns) parts.push(`<th>${this._escapeHtml(col)}</th>`);
-        parts.push('</tr>');
-        for (const row of rows) {
-            parts.push('<tr>');
-            for (const cell of row) parts.push(`<td>${this._escapeHtml(cell)}</td>`);
-            parts.push('</tr>');
-        }
-        parts.push('</table>');
-        return parts.join('');
+        return escapeHtml(s);
     }
 
     /**
-     * Execute SQL and return raw {columns, rows} instead of HTML
+     * Core WASM SQL execution — returns { columns, rows, error }
      */
-    _queryRaw(sql) {
+    _execSql(sql) {
         const mod = this.sqliteModule;
         const trimmedSql = sql.trim();
 
@@ -522,21 +445,52 @@ class SQLiteVisApp {
                 return 0;
             };
             const callbackPtr = mod.addFunction(callback, 'iiiii');
+
             const result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
             mod.removeFunction(callbackPtr);
             mod._free(sqlPtr);
 
             if (result !== 0) {
                 const errorMsgPtr = mod.HEAP32[errorPtrPtr >> 2];
-                const errMsg = errorMsgPtr ? mod.UTF8ToString(errorMsgPtr) : 'Error ' + result;
+                const errMsg = errorMsgPtr ? mod.UTF8ToString(errorMsgPtr) : 'Error code: ' + result;
                 mod._free(errorPtrPtr);
-                return { error: errMsg };
+                return { columns: [], rows: [], error: errMsg };
             }
+
             mod._free(errorPtrPtr);
-            return { columns: columns || [], rows };
+            return { columns: columns || [], rows, error: null };
         } catch (e) {
-            return { error: e.message };
+            return { columns: [], rows: [], error: e.message };
         }
+    }
+
+    _executeOne(sql) {
+        const { columns, rows, error } = this._execSql(sql);
+        if (error) return { error };
+        if (columns.length > 0) return { table: this._buildTable(columns, rows) };
+        return { message: 'SQL executed successfully' };
+    }
+
+    _buildTable(columns, rows) {
+        const parts = ['<table><tr>'];
+        for (const col of columns) parts.push(`<th>${this._escapeHtml(col)}</th>`);
+        parts.push('</tr>');
+        for (const row of rows) {
+            parts.push('<tr>');
+            for (const cell of row) parts.push(`<td>${this._escapeHtml(cell)}</td>`);
+            parts.push('</tr>');
+        }
+        parts.push('</table>');
+        return parts.join('');
+    }
+
+    /**
+     * Execute SQL and return raw {columns, rows} instead of HTML
+     */
+    _queryRaw(sql) {
+        const { columns, rows, error } = this._execSql(sql);
+        if (error) return { error };
+        return { columns, rows };
     }
 
     /**
