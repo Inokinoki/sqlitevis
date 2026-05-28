@@ -346,10 +346,9 @@ window.sqliteVisEventHandler = (eventType, dataJson) => {
 };
 
 /**
- * Shared utility: escape HTML special characters
+ * Shared utility: escape HTML special characters (regex-based, no DOM allocation)
  */
+const _escapeMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function escapeHtml(s) {
-    const d = document.createElement('div');
-    d.textContent = s == null ? 'NULL' : String(s);
-    return d.innerHTML;
+    return String(s == null ? 'NULL' : s).replace(/[&<>"']/g, c => _escapeMap[c]);
 }

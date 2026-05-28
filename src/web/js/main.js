@@ -185,9 +185,7 @@ class SQLiteVisApp {
 
         eventManager.on(7, (e) => { // PAGE_FREE
             if (this.visualizer) {
-                this.visualizer.nodes.delete(e.data.page);
-                this.visualizer.layout();
-                this.visualizer.draw();
+                this.visualizer.removePage(e.data.page);
             }
         });
 
