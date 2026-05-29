@@ -14,9 +14,12 @@ class EventManager {
         this._elementPool = [];
         this._maxPoolSize = 100;
 
-        // Performance: Limit visible events to prevent DOM overload
-        this._maxVisibleEvents = 500; // Only show last 500 events
         this._eventLogEnabled = true; // Can toggle to disable log entirely
+        this._vdbeOpcodeCount = 0;
+        this._scrollCounter = 0;
+
+        // SQLite result code names (shared for reuse)
+        this.resultCodeNames = { 0: 'OK', 1: 'ERROR', 5: 'BUSY', 6: 'LOCKED', 100: 'ROW', 101: 'DONE' };
 
         // Event type names
         this.eventTypeNames = {
@@ -61,7 +64,7 @@ class EventManager {
         // Throttle DOM logging for high-frequency events
         let skipDomLog = false;
         if (eventType === 12) { // VDBE_OPCODE
-            this._vdbeOpcodeCount = (this._vdbeOpcodeCount || 0) + 1;
+            this._vdbeOpcodeCount++;
             if (this._vdbeOpcodeCount % 10 !== 0) {
                 skipDomLog = true;
             }
@@ -78,19 +81,23 @@ class EventManager {
                 data = { _raw: dataJson, _parseError: true };
             }
 
-            // Use event type directly (rebuilt WASM sends correct types)
-            const effectiveType = eventType;
-
             const event = {
                 id: this.eventCount++,
-                type: effectiveType,
-                typeName: this.eventTypeNames[effectiveType] || 'UNKNOWN',
-                category: this.eventCategories[effectiveType] || 'other',
+                type: eventType,
+                typeName: this.eventTypeNames[eventType] || 'UNKNOWN',
+                category: this.eventCategories[eventType] || 'other',
                 data: data,
                 timestamp: Date.now()
             };
 
             this.events.push(event);
+
+            // Prune events array to prevent unbounded growth (all events, not just DOM-logged)
+            const MAX_MEMORY_EVENTS = 100;
+            if (this.events.length > MAX_MEMORY_EVENTS) {
+                this.events.splice(0, this.events.length - MAX_MEMORY_EVENTS);
+            }
+
             if (!skipDomLog) {
                 this.logEvent(event);
             }
@@ -219,10 +226,11 @@ class EventManager {
 
         // Fast-path: check DOM size
         if (logElement.children.length >= MAX_DOM_EVENTS) {
-            // Remove first child (fastest way to remove from beginning)
+            // Remove first child and return to pool
             if (logElement.firstElementChild) {
-                // Return element to pool instead of destroying it
-                this._returnElementToPool(logElement.firstElementChild);
+                const old = logElement.firstElementChild;
+                logElement.removeChild(old);
+                this._returnElementToPool(old);
             }
         }
 
@@ -232,20 +240,13 @@ class EventManager {
 
         // Throttled auto-scroll to reduce layout thrashing
         // Only scroll every 5 events instead of every event
-        this._scrollCounter = (this._scrollCounter || 0) + 1;
+        this._scrollCounter++;
         if (this.autoScroll && this._scrollCounter % 5 === 0 && !this._scrollScheduled) {
             this._scrollScheduled = true;
             requestAnimationFrame(() => {
                 logElement.scrollTop = logElement.scrollHeight;
                 this._scrollScheduled = false;
             });
-        }
-
-        // Prune the events array to prevent memory leaks
-        // Keep only the most recent 100 events in memory (reduced from 200)
-        const MAX_MEMORY_EVENTS = 100;
-        if (this.events.length > MAX_MEMORY_EVENTS) {
-            this.events.splice(0, this.events.length - MAX_MEMORY_EVENTS);
         }
     }
 
@@ -292,8 +293,7 @@ class EventManager {
                 return `[${data.pc}] ${data.opcode} p1=${data.p1} p2=${data.p2} p3=${data.p3}`;
 
             case 'VDBE_COMPLETE':
-                const codes = { 0: 'OK', 5: 'BUSY', 6: 'LOCKED', 1: 'ERROR', 100: 'ROW', 101: 'DONE' };
-                return codes[data.resultCode] || `code ${data.resultCode}`;
+                return this.resultCodeNames[data.resultCode] || `code ${data.resultCode}`;
 
             default:
                 return JSON.stringify(data);
@@ -314,11 +314,15 @@ class EventManager {
     clear() {
         this.events = [];
         this.eventCount = 0;
+        this._vdbeOpcodeCount = 0;
 
         const logElement = document.getElementById('event-log');
         if (logElement) {
+            // Return children to pool before clearing
             while (logElement.firstChild) {
-                logElement.removeChild(logElement.firstChild);
+                const child = logElement.firstChild;
+                logElement.removeChild(child);
+                this._returnElementToPool(child);
             }
         }
 
@@ -351,4 +355,22 @@ window.sqliteVisEventHandler = (eventType, dataJson) => {
 const _escapeMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function escapeHtml(s) {
     return String(s == null ? 'NULL' : s).replace(/[&<>"']/g, c => _escapeMap[c]);
+}
+
+/**
+ * Shared utility: build an HTML table from columns and rows
+ */
+function buildTableHtml(columns, rows, cssClass) {
+    const parts = ['<table'];
+    if (cssClass) parts.push(` class="${cssClass}"`);
+    parts.push('><tr>');
+    for (const col of columns) parts.push(`<th>${escapeHtml(col)}</th>`);
+    parts.push('</tr>');
+    for (const row of rows) {
+        parts.push('<tr>');
+        for (const cell of row) parts.push(`<td>${escapeHtml(cell)}</td>`);
+        parts.push('</tr>');
+    }
+    parts.push('</table>');
+    return parts.join('');
 }

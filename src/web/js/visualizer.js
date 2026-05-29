@@ -32,168 +32,24 @@ class BTreeVisualizer {
         // Callback for querying actual row data from main.js
         this.onQueryNodeData = null; // async (pageNum, rowids) => { columns, rows } or { error }
 
-        // Track last accessed page for parent-child relationships
-        this.lastAccessedPage = null;
-
         // Store ResizeObserver for cleanup
         this.resizeObserver = null;
 
         // Performance optimization: throttle canvas redraws
         this._needsRedraw = false;
         this._scheduledDraw = false;
-        this._lastDrawState = null;
 
-        // Performance optimization: cache canvas dimensions
-        this._canvasWidth = 0;
-        this._canvasHeight = 0;
+        // Canvas dimensions read fresh each frame (clientWidth/Height is cheap)
 
         // Performance optimization: throttle VDBE rendering
-        this._vdbeDrawPending = false;
         this._vdbeDrawScheduled = false;
-
-        // Performance optimization: throttle parse tree rendering
-        this._parseDrawPending = false;
-        this._parseDrawScheduled = false;
+        this._vdbeRafId = null;
+        this._opcodeCount = 0;
 
         // Performance optimization: Cache expensive calculations
         this._layoutCache = new Map();
-        this._maxCacheSize = 100;
-
-        // Performance optimization: Skip frames if rendering is too slow
-        this._frameTime = 0;
-        this._targetFrameTime = 16; // 60fps target
 
         // SQLite token type mapping (numeric -> name)
-        this.tokenTypeNames = {
-            1: 'TK_ILLEGAL',
-            2: 'TK_SPACE',
-            3: 'TK_UNCLOSED_STRING',
-            4: 'TK_COMMENT',
-            5: 'TK_FUNCTION',
-            6: 'TK_COLUMN',
-            7: 'TK_AGG_COLUMN',
-            8: 'TK_AGG_FUNCTION',
-            9: 'TK_VARIABLE',
-            10: 'TK_CAST',
-            11: 'TK_LP',
-            12: 'TK_RP',
-            13: 'TK_LSQUARE',
-            14: 'TK_RSQUARE',
-            15: 'TK_SEMI',
-            16: 'TK_TABLE',
-            17: 'TK_CREATE',
-            18: 'TK_IF',
-            19: 'TK_NOT',
-            20: 'TK_NE',
-            21: 'TK_EQ',
-            22: 'TK_GT',
-            23: 'TK_LE',
-            24: 'TK_LT',
-            25: 'TK_GE',
-            26: 'TK_IS',
-            27: 'TK_IN',
-            28: 'TK_LIKE',
-            29: 'TK_GLOB',
-            30: 'TK_BETWEEN',
-            31: 'TK_EXISTS',
-            32: 'TK_NO',
-            33: 'TK_NOTNULL',
-            34: 'TK_NEVER',
-            35: 'TK_NULL',
-            36: 'TK_ID',
-            37: 'TK_OFFSET',
-            38: 'TK_SELECT',
-            39: 'TK_DISTINCT',
-            40: 'TK_DOT',
-            41: 'TK_FROM',
-            42: 'TK_JOIN',
-            43: 'TK_USING',
-            44: 'TK_ORDER',
-            45: 'TK_GROUP',
-            46: 'TK_HAVING',
-            47: 'TK_LIMIT',
-            48: 'TK_WHERE',
-            49: 'TK_THEN',
-            50: 'TK_AND',
-            51: 'TK_OR',
-            52: 'TK_NOTHING',
-            53: 'TK_COMMA',
-            54: 'TK_INSERT',
-            55: 'TK_DELETE',
-            56: 'TK_UPDATE',
-            57: 'TK_SET',
-            58: 'TK_VALUES',
-            59: 'TK_LIKE_OP',
-            60: 'TK_ISNOT',
-            61: 'TK_EXECUTE',
-            62: 'TK_BEGIN',
-            63: 'TK_END',
-            64: 'TK_ROLLBACK',
-            65: 'TK_TRANSACTION',
-            66: 'TK_COMMIT',
-            67: 'TK_INTO',
-            68: 'TK_REPLACE',
-            69: 'TK_ON',
-            70: 'TK_INDEX',
-            71: 'TK_ALTER',
-            72: 'TK_TO',
-            73: 'TK_BY',
-            74: 'TK_OF',
-            75: 'TK_AUTOINCR',
-            76: 'TK_BLOB',
-            77: 'TK_FLOAT',
-            78: 'TK_INTEGER',
-            79: 'TK_KEY',
-            80: 'TK_CONSTRAINT',
-            81: 'TK_DEFAULT',
-            82: 'TK_COLLATE',
-            83: 'TK_NK_SEMI',
-            84: 'TK_RROW',
-            85: 'TK_DEFERRED',
-            86: 'TK_IMMEDIATE',
-            87: 'TK_EXCLUSIVE',
-            88: 'TK_CHECK',
-            89: 'TK_PRIMARY',
-            90: 'TK_UNIQUE',
-            91: 'TK_FOREIGN',
-            92: 'TK_CASCADE',
-            93: 'TK_ASC',
-            94: 'TK_DESC',
-            95: 'TK_ATTACH',
-            96: 'TK_DETACH',
-            97: 'TK_EACH',
-            98: 'TK_FOREACH',
-            99: 'TK_MODULE',
-            100: 'TK_PRAGMA',
-            101: 'TK_PLUS',
-            102: 'TK_MINUS',
-            103: 'TK_STAR',
-            104: 'TK_SLASH',
-            105: 'TK_REM',
-            106: 'TK_CONCAT',
-            107: 'TK_BITAND',
-            108: 'TK_BITOR',
-            109: 'TK_LSHIFT',
-            110: 'TK_RSHIFT',
-            111: 'TK_BITNOT',
-            112: 'TK_STRING',
-            113: 'TK_JOIN_KW',
-            114: 'TK_CONSTRAINT',
-            115: 'TK_CHECK',
-            116: 'TK_DEFAULT',
-            117: 'TK_NULL',
-            118: 'TK_REFERENCES',
-            119: 'TK_TRIGGER',
-            120: 'TK_RECURSIVE',
-            121: 'TK_VACUUM',
-            122: 'TK_WITH',
-            123: 'TK_REINDEX',
-            124: 'TK_ANALYZE',
-            125: 'TK_DROP',
-            126: 'TK_OFFSET',
-            127: 'TK_PRAGMA'
-        };
-
         // Layout
         this.nodeWidth = 120;
         this.nodeHeight = 40;
@@ -213,18 +69,18 @@ class BTreeVisualizer {
         // SQL clause boundary keywords (used by parser)
         this._clauseBoundaries = ['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING'];
         this._joinBoundaries = ['JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
-        this._postFromBoundaries = ['WHERE', 'ORDER', 'LIMIT', 'GROUP', 'HAVING', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS'];
+        this._postFromBoundaries = [...this._clauseBoundaries, ...this._joinBoundaries];
 
         // AST node clause types (for rendering)
         this._astClauseTypes = new Set(['columns', 'from', 'from_clause', 'where', 'values', 'set', 'table',
             'group_by', 'order_by', 'limit', 'modifier', 'join', 'on', 'having']);
 
-        // SQL keywords for tokenization (class-level to avoid rebuilding)
-        this._sqlKeywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
+        // SQL keywords for tokenization (Set for O(1) lookup)
+        this._sqlKeywords = new Set(['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
             'CREATE', 'TABLE', 'DROP', 'ALTER', 'INDEX', 'AND', 'OR', 'NOT', 'NULL', 'INTEGER', 'TEXT',
             'PRIMARY', 'KEY', 'REAL', 'INT', 'VARCHAR', 'CHAR', 'BLOB', 'IF', 'EXISTS', 'UNIQUE',
             'ORDER', 'BY', 'ASC', 'DESC', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
-            'ON', 'AS', 'DISTINCT', 'GROUP', 'HAVING', 'UNION', 'ALL', 'LIKE', 'BETWEEN', 'IS', 'IN'];
+            'ON', 'AS', 'DISTINCT', 'GROUP', 'HAVING', 'UNION', 'ALL', 'LIKE', 'BETWEEN', 'IS', 'IN']);
 
         // Pan & zoom state
         this._panX = 0;
@@ -260,9 +116,9 @@ class BTreeVisualizer {
      * Setup Intersection Observer for lazy rendering
      */
     setupIntersectionObserver() {
-        // Only render when canvas is visible
+        // Default to visible; IntersectionObserver updates when available
+        this._isVisible = true;
         if ('IntersectionObserver' in window) {
-            this._isVisible = true;
             this.intersectionObserver = new IntersectionObserver(
                 (entries) => {
                     entries.forEach(entry => {
@@ -429,6 +285,7 @@ class BTreeVisualizer {
     _resetVdbeState() {
         this.vdbeCurrentPc = -1;
         this.vdbeStepIndex = -1;
+        this._opcodeCount = 0;
     }
 
     /** Get dense (non-null) opcode list from sparse vdbeOpcodes array */
@@ -452,9 +309,12 @@ class BTreeVisualizer {
         if (!this.showTransitions) return;
         for (const p of pages) this.highlightedNodes.add(p);
         this.draw(); // immediate draw to show highlight
-        setTimeout(() => {
-            for (const p of pages) this.highlightedNodes.delete(p);
-            this.draw(); // redraw to remove highlight
+
+        // Use single timeout — clear all highlights at once
+        clearTimeout(this._flashTimeout);
+        this._flashTimeout = setTimeout(() => {
+            this.highlightedNodes.clear();
+            this.draw();
         }, durationMs);
     }
 
@@ -575,18 +435,17 @@ class BTreeVisualizer {
      */
     addPage(pageNum, pageType, parentPage = null) {
         // Filter out invalid page numbers from misdirected events
-        if (pageNum === null || pageNum === undefined || isNaN(pageNum)) return;
+        if (pageNum === null || pageNum === undefined || isNaN(pageNum) || !isFinite(pageNum)) return;
+        // Page 0 is not valid in SQLite (pages are 1-indexed)
+        const validParent = (parentPage !== null && parentPage > 0) ? parentPage : null;
 
         // Don't overwrite existing node (preserves cells, children, etc.)
         const existing = this.nodes.get(pageNum);
         if (existing) {
             // Update parent if provided and not set
-            if (parentPage !== null && existing.parent === null) {
-                existing.parent = parentPage;
-                const parentNode = this.nodes.get(parentPage);
-                if (parentNode && !parentNode.children.includes(pageNum)) {
-                    parentNode.children.push(pageNum);
-                }
+            if (validParent !== null && existing.parent === null) {
+                existing.parent = validParent;
+                this._linkChild(validParent, pageNum);
             }
             this.draw();
             return;
@@ -596,7 +455,7 @@ class BTreeVisualizer {
             page: pageNum,
             type: pageType, // 0: interior, 1: leaf
             cells: [],
-            parent: parentPage,
+            parent: validParent,
             children: [],
             x: 0,
             y: 0,
@@ -606,27 +465,56 @@ class BTreeVisualizer {
         this.nodes.set(pageNum, node);
 
         // If we have a parent, add this page as a child
-        if (parentPage !== null) {
-            const parentNode = this.nodes.get(parentPage);
-            if (parentNode && !parentNode.children.includes(pageNum)) {
-                parentNode.children.push(pageNum);
-            }
+        if (validParent !== null) {
+            this._linkChild(validParent, pageNum);
         }
-
-        // Track this as the last accessed page
-        this.lastAccessedPage = pageNum;
 
         // Batch layout and draw calls
         this._scheduleLayoutAndDraw();
     }
 
     /**
+     * Register child in parent's children list (idempotent)
+     */
+    _linkChild(parentPage, childPage) {
+        const parent = this.nodes.get(parentPage);
+        if (parent && !parent.children.includes(childPage)) {
+            parent.children.push(childPage);
+        }
+    }
+
+    /**
      * Remove a page from the tree
      */
     removePage(pageNum) {
+        const node = this.nodes.get(pageNum);
+        if (node) {
+            // Unlink from parent's children list
+            if (node.parent !== null) {
+                const parent = this.nodes.get(node.parent);
+                if (parent) {
+                    const idx = parent.children.indexOf(pageNum);
+                    if (idx >= 0) parent.children.splice(idx, 1);
+                }
+            }
+        }
         this.nodes.delete(pageNum);
         this._layoutCache.clear();
         this._scheduleLayoutAndDraw();
+    }
+
+    /**
+     * Walk up the tree to find root page for a given node
+     */
+    findRootPage(pageNum) {
+        let current = this.nodes.get(pageNum);
+        let steps = 0;
+        const maxSteps = this.nodes.size + 1;
+        while (current && current.parent !== null && steps < maxSteps) {
+            current = this.nodes.get(current.parent);
+            steps++;
+        }
+        return current ? current.page : null;
     }
 
     /**
@@ -638,7 +526,11 @@ class BTreeVisualizer {
             // Auto-create page node if not yet allocated (PAGE_ALLOCATE may have fired before JS connected)
             this.addPage(pageNum, 1);
             node = this.nodes.get(pageNum);
+            if (!node) return; // guard: addPage may reject invalid pageNum
         }
+
+        // Bounds-check cellIdx to prevent splice from wrong position
+        if (cellIdx < 0) cellIdx = 0;
 
         const cell = {
             idx: cellIdx,
@@ -647,9 +539,6 @@ class BTreeVisualizer {
         };
 
         node.cells.splice(cellIdx, 0, cell);
-
-        // Track this as the last accessed page
-        this.lastAccessedPage = pageNum;
 
         // Animation
         if (this.showTransitions) {
@@ -665,6 +554,9 @@ class BTreeVisualizer {
     deleteCell(pageNum, cellIdx) {
         const node = this.nodes.get(pageNum);
         if (!node) return;
+
+        // Bounds-check: ignore invalid indices
+        if (cellIdx < 0 || cellIdx >= node.cells.length) return;
 
         if (this.showTransitions) {
             this.animateDeletion(pageNum, cellIdx);
@@ -690,9 +582,7 @@ class BTreeVisualizer {
             if (original) {
                 original.cells = [];
                 original.type = 0; // interior
-                if (!original.children.includes(newPage)) {
-                    original.children.push(newPage);
-                }
+                this._linkChild(originalPage, newPage);
             }
             // Create the child page that holds the old root content
             this.addPage(newPage, 1, originalPage);
@@ -708,10 +598,7 @@ class BTreeVisualizer {
 
             // Add new page as sibling (same parent)
             if (original.parent !== null) {
-                const parentNode = this.nodes.get(original.parent);
-                if (parentNode && !parentNode.children.includes(newPage)) {
-                    parentNode.children.push(newPage);
-                }
+                this._linkChild(original.parent, newPage);
             }
         }
 
@@ -729,8 +616,12 @@ class BTreeVisualizer {
     layout() {
         if (this.nodes.size === 0) return;
 
-        // Check cache
-        const cacheKey = Array.from(this.nodes.keys()).sort().join('-');
+        // Check cache (key includes parent-child structure, not just page numbers)
+        const parts = [];
+        this.nodes.forEach((n, p) => {
+            parts.push(`${p}:${n.type}:${n.parent}:${n.children.join(',')}:${n.cells.length}`);
+        });
+        const cacheKey = parts.sort().join('|');
         if (this._layoutCache.has(cacheKey)) {
             const cached = this._layoutCache.get(cacheKey);
             cached.forEach((pos, pageNum) => {
@@ -786,10 +677,9 @@ class BTreeVisualizer {
             });
         }
 
-        // Cache the layout
-        if (this._layoutCache.size >= this._maxCacheSize) {
-            const firstKey = this._layoutCache.keys().next().value;
-            this._layoutCache.delete(firstKey);
+        // Evict oldest entry if cache is full (max 50 entries)
+        if (this._layoutCache.size >= 50) {
+            this._layoutCache.delete(this._layoutCache.keys().next().value);
         }
         this._layoutCache.set(cacheKey, layoutMap);
     }
@@ -800,9 +690,14 @@ class BTreeVisualizer {
     buildLevels(root) {
         const levels = [];
         const queue = [[root, 0]];
+        const visited = new Set();
+        let i = 0;
 
-        while (queue.length > 0) {
-            const [node, level] = queue.shift();
+        while (i < queue.length) {
+            const [node, level] = queue[i++];
+
+            if (visited.has(node.page)) continue;
+            visited.add(node.page);
 
             if (!levels[level]) {
                 levels[level] = [];
@@ -824,13 +719,6 @@ class BTreeVisualizer {
      * Main draw function with requestAnimationFrame batching and state checking
      */
     draw() {
-        // Create state hash to check if redraw is needed
-        const currentState = this._createStateHash();
-        if (currentState === this._lastDrawState && !this._needsRedraw) {
-            return; // Skip redraw if nothing changed
-        }
-        this._lastDrawState = currentState;
-
         // Schedule redraw instead of immediate draw
         if (this._scheduledDraw) {
             this._needsRedraw = true;
@@ -846,7 +734,6 @@ class BTreeVisualizer {
             // If another draw was requested during this render, schedule it
             if (this._needsRedraw) {
                 this._needsRedraw = false;
-                this._lastDrawState = this._createStateHash();
                 requestAnimationFrame(() => this._performDraw());
             } else {
                 this._scheduledDraw = false;
@@ -855,34 +742,16 @@ class BTreeVisualizer {
     }
 
     /**
-     * Create a hash of current visual state to detect changes
-     */
-    _createStateHash() {
-        const panZoom = `${this._panX},${this._panY},${this._zoom}`;
-        if (this.viewMode === 'btree') {
-            return `btree-${this.nodes.size}-${Array.from(this.nodes.keys()).join('-')}-${Array.from(this.highlightedNodes).join('-')}-${panZoom}`;
-        } else if (this.viewMode === 'parse') {
-            return `parse-${this.parseTokens.length}-${this.currentSQL}-${panZoom}`;
-        } else if (this.viewMode === 'vdbe') {
-            return `vdbe-${this.vdbeOpcodes.length}-${this.vdbeCurrentPc}-${panZoom}`;
-        }
-        return this.viewMode;
-    }
-
-    /**
      * Internal draw implementation - HIGHLY OPTIMIZED
      */
     _performDraw() {
         const startTime = performance.now();
 
-        // Use cached dimensions to avoid expensive getBoundingClientRect calls
-        if (this._canvasWidth !== this.canvas.clientWidth || this._canvasHeight !== this.canvas.clientHeight) {
-            this._canvasWidth = this.canvas.clientWidth;
-            this._canvasHeight = this.canvas.clientHeight;
-        }
+        const w = this.canvas.clientWidth;
+        const h = this.canvas.clientHeight;
 
         // Clear canvas
-        this._clearCanvas(this._canvasWidth, this._canvasHeight);
+        this._clearCanvas(w, h);
 
         // Early exit if no nodes to draw in btree mode
         if (this.viewMode === 'btree' && this.nodes.size === 0) {
@@ -955,9 +824,9 @@ class BTreeVisualizer {
             return { isLeaf, typeLabel, accentColor };
         };
 
-        // Compact node sizing
+        // Compact node sizing (headerH + bodyH must equal this.nodeHeight)
         const headerH = 22;
-        const bodyH = 18;
+        const bodyH = this.nodeHeight - headerH;
 
         // Draw a single compact node
         const drawRichNode = (node) => {
@@ -965,7 +834,7 @@ class BTreeVisualizer {
             const x = node.x;
             const y = node.y;
             const w = this.nodeWidth;
-            const h = headerH + bodyH;
+            const h = this.nodeHeight;
             const pad = 6;
 
             // Shadow
@@ -1049,12 +918,9 @@ class BTreeVisualizer {
         // Restore pan/zoom transform
         this.ctx.restore();
 
-        // Track frame time for performance monitoring
-        this._frameTime = performance.now() - startTime;
-
         // Record frame to performance monitor
         if (typeof perfMonitor !== 'undefined') {
-            perfMonitor.recordFrame(this._frameTime);
+            perfMonitor.recordFrame(performance.now() - startTime);
         }
     }
 
@@ -1229,7 +1095,7 @@ class BTreeVisualizer {
 
         if (result.error) {
             dataDiv.innerHTML = '<div style="color:var(--danger-color);margin-top:8px">' +
-                this._escapeHtml(result.error) + '</div>';
+                escapeHtml(result.error) + '</div>';
             return;
         }
 
@@ -1238,20 +1104,7 @@ class BTreeVisualizer {
             return;
         }
 
-        let html = '<table class="node-data-table"><tr>';
-        for (const col of result.columns) html += '<th>' + this._escapeHtml(col) + '</th>';
-        html += '</tr>';
-        for (const row of result.rows) {
-            html += '<tr>';
-            for (const cell of row) html += '<td>' + this._escapeHtml(cell) + '</td>';
-            html += '</tr>';
-        }
-        html += '</table>';
-        dataDiv.innerHTML = html;
-    }
-
-    _escapeHtml(s) {
-        return escapeHtml(s);
+        dataDiv.innerHTML = buildTableHtml(result.columns, result.rows, 'node-data-table');
     }
 
     /**
@@ -1259,7 +1112,7 @@ class BTreeVisualizer {
      */
     hideNodeInfo() {
         const infoPanel = document.getElementById('node-info');
-        infoPanel.classList.add('hidden');
+        if (infoPanel) infoPanel.classList.add('hidden');
     }
 
     /**
@@ -1344,17 +1197,23 @@ class BTreeVisualizer {
      */
     clear() {
         this.nodes.clear();
-        this.rootPage = null;
-        this.lastAccessedPage = null;
+        this.rootPage = 1;
         this.parseTokens = [];
         this.currentSQL = '';
         this.parseTree = null;
         this.vdbeOpcodes = [];
         this._resetVdbeState();
-        this.vdbeState = '';
+        if (this._vdbeRafId !== null) {
+            cancelAnimationFrame(this._vdbeRafId);
+            this._vdbeRafId = null;
+        }
+        this._vdbeDrawScheduled = false;
         this.animations = [];
         this.highlightedNodes.clear();
+        clearTimeout(this._flashTimeout);
         this._layoutCache.clear();
+        // Invalidate node info cache (DOM refs may be stale after clear)
+        this._nodeInfoCache = null;
         // Reset pan/zoom
         this._panX = 0;
         this._panY = 0;
@@ -1374,9 +1233,10 @@ class BTreeVisualizer {
         this.viewMode = mode;
 
         // Toggle VDBE step controls visibility
+        const denseOps = this._getDenseOpcodes();
         const vdbeCtrl = document.getElementById('vdbe-controls');
         if (vdbeCtrl) {
-            if (mode === 'vdbe' && this._getDenseOpcodes().length > 0) {
+            if (mode === 'vdbe' && denseOps.length > 0) {
                 vdbeCtrl.classList.remove('hidden');
             } else {
                 vdbeCtrl.classList.add('hidden');
@@ -1387,8 +1247,8 @@ class BTreeVisualizer {
         if (mode === 'parse') {
             this.drawParseTree(!this.currentSQL);  // only show waiting if no SQL data
         } else if (mode === 'vdbe') {
-            if (this._getDenseOpcodes().length > 0) {
-                this.drawVdbeList('Complete', `Total opcodes: ${this._getDenseOpcodes().length}`);
+            if (denseOps.length > 0) {
+                this.drawVdbeList('Complete', `Total opcodes: ${denseOps.length}`);
             } else {
                 this.drawVdbeList('Idle', 'Execute SQL to see VDBE execution');
             }
@@ -1410,17 +1270,15 @@ class BTreeVisualizer {
      * @param {number} direction - 1 for forward, -1 for backward, 0 for reset
      */
     stepVdbe(direction) {
-        const ops = this._getDenseOpcodes();
-        if (ops.length === 0) return;
+        // Compute validPcs once for reuse (from dense opcodes)
+        const denseOps = this._getDenseOpcodes();
+        const validPcs = denseOps.map(o => o.pc);
+        if (validPcs.length === 0) return;
 
         if (direction === 0) {
             // Reset
             this.vdbeStepIndex = -1;
         } else {
-            // Find next/prev valid opcode index
-            const validPcs = this.vdbeOpcodes.map((o, i) => o ? i : -1).filter(i => i >= 0);
-            if (validPcs.length === 0) return;
-
             if (this.vdbeStepIndex < 0) {
                 // Not started yet — begin from first or last
                 this.vdbeStepIndex = direction > 0 ? validPcs[0] : validPcs[validPcs.length - 1];
@@ -1437,8 +1295,6 @@ class BTreeVisualizer {
         }
 
         // Update step info text
-        const opsFiltered = this._getDenseOpcodes();
-        const validPcs = this.vdbeOpcodes.map((o, i) => o ? i : -1).filter(i => i >= 0);
         const pos = validPcs.indexOf(this.vdbeStepIndex) + 1;
         const info = document.getElementById('vdbe-step-info');
         if (info) {
@@ -1446,7 +1302,9 @@ class BTreeVisualizer {
                 info.textContent = '';
             } else {
                 const op = this.vdbeOpcodes[this.vdbeStepIndex];
-                info.textContent = `Step ${pos}/${validPcs.length}: [${op.pc}] ${op.opcode}`;
+                if (op) {
+                    info.textContent = `Step ${pos}/${validPcs.length}: [${op.pc}] ${op.opcode}`;
+                }
             }
         }
 
@@ -1494,51 +1352,6 @@ class BTreeVisualizer {
     }
 
     /**
-     * Show parse token (with batched rendering for performance)
-     */
-    showParseToken(token, type) {
-        // Always collect token data regardless of view mode
-
-        // Validate inputs
-        if (token === null || token === undefined) {
-            console.warn('Invalid token value:', token);
-            token = '';
-        }
-
-        if (typeof token !== 'string') {
-            console.warn('Token is not a string:', typeof token);
-            token = String(token);
-        }
-
-        // Truncate very long tokens to prevent rendering issues
-        const MAX_TOKEN_LENGTH = 100;
-        if (token.length > MAX_TOKEN_LENGTH) {
-            token = token.substring(0, MAX_TOKEN_LENGTH) + '...';
-        }
-
-        // Convert numeric type to readable name
-        const typeName = this.tokenTypeNames[type] || `TK_${type}`;
-
-        // Add token to list
-        this.parseTokens.push({ token, type: typeName });
-
-        // Batch rendering for performance - only draw when in parse view
-        if (this.viewMode === 'parse') {
-            this._parseDrawPending = true;
-            if (!this._parseDrawScheduled) {
-                this._parseDrawScheduled = true;
-                requestAnimationFrame(() => {
-                    if (this._parseDrawPending) {
-                        this.drawParseTree(false);
-                        this._parseDrawPending = false;
-                    }
-                    this._parseDrawScheduled = false;
-                });
-            }
-        }
-    }
-
-    /**
      * Show parse complete
      */
     showParseComplete(success) {
@@ -1568,14 +1381,22 @@ class BTreeVisualizer {
         };
         const isKeyword = (kw) => peek() && peek().type === 'keyword' && peek().text.toUpperCase() === kw;
 
-        // Collect tokens until a boundary keyword or semicolon
+        // Collect tokens until a boundary keyword or semicolon (respects parenthesis depth)
         const collectUntil = (stopWords) => {
             const items = [];
+            let parenDepth = 0;
             while (pos < tokens.length) {
                 const t = peek();
                 if (!t) break;
                 if (t.text === ';') break;  // always stop at semicolons
-                if (t.type === 'keyword' && stopWords.some(w => t.text.toUpperCase() === w)) break;
+                if (t.text === '(') {
+                    parenDepth++;
+                } else if (t.text === ')') {
+                    if (parenDepth === 0) break; // closing paren we didn't open — stop before it
+                    parenDepth--;
+                } else if (parenDepth === 0 && t.type === 'keyword' && stopWords.some(w => t.text.toUpperCase() === w)) {
+                    break;
+                }
                 advance();
                 items.push(t);
             }
@@ -1643,7 +1464,7 @@ class BTreeVisualizer {
             // GROUP BY
             if (isKeyword('GROUP')) {
                 advance(); // GROUP
-                advance(); // BY
+                if (isKeyword('BY')) advance(); // BY (optional, defensive)
                 const items = collectUntil(['HAVING', 'ORDER', 'LIMIT']);
                 node.children.push(this._node('group_by', this._tokensText(items)));
             }
@@ -1658,7 +1479,7 @@ class BTreeVisualizer {
             // ORDER BY
             if (isKeyword('ORDER')) {
                 advance(); // ORDER
-                advance(); // BY
+                if (isKeyword('BY')) advance(); // BY (optional, defensive)
                 const items = collectUntil(['LIMIT']);
                 node.children.push(this._node('order_by', this._tokensText(items)));
             }
@@ -1675,7 +1496,7 @@ class BTreeVisualizer {
 
         const parseInsert = () => {
             advance(); // INSERT
-            advance(); // INTO (keyword)
+            if (isKeyword('INTO')) advance(); // optional INTO keyword
             const node = this._node('INSERT', 'INSERT');
 
             // Table name
@@ -1706,11 +1527,15 @@ class BTreeVisualizer {
 
         const parseCreate = () => {
             advance(); // CREATE
-            const node = this._node('CREATE', 'CREATE TABLE');
+            let createType = 'TABLE';
+            if (isKeyword('TABLE')) { advance(); }
+            else if (isKeyword('INDEX')) { createType = 'INDEX'; advance(); }
+            else if (isKeyword('VIEW')) { createType = 'VIEW'; advance(); }
+            else if (isKeyword('TRIGGER')) { createType = 'TRIGGER'; advance(); }
+            const node = this._node('CREATE', 'CREATE ' + createType);
 
-            // TABLE (IF NOT EXISTS)
-            if (isKeyword('TABLE')) advance();
-            if (isKeyword('IF')) { advance(); advance(); } // IF NOT EXISTS
+            // IF NOT EXISTS
+            if (isKeyword('IF')) { advance(); if (isKeyword('NOT')) advance(); if (isKeyword('EXISTS')) advance(); }
 
             // Table name
             const table = advance();
@@ -1780,7 +1605,7 @@ class BTreeVisualizer {
 
         const parseDelete = () => {
             advance(); // DELETE
-            advance(); // FROM
+            if (isKeyword('FROM')) advance(); // optional FROM keyword
             const node = this._node('DELETE', 'DELETE');
 
             const table = advance();
@@ -1835,18 +1660,49 @@ class BTreeVisualizer {
     tokenizeSQL(sql) {
         const tokens = [];
         const keywords = this._sqlKeywords;
-        // Match: quoted strings, numbers, identifiers/keywords, operators, punctuation
-        const regex = /'[^']*'|"[^"]*"|\d+(?:\.\d+)?|[A-Za-z_]\w*|[<>=!]+|[*,();]/g;
+
+        // Strip comments before tokenizing (-- line comments and /* */ block comments)
+        // but preserve string literals (don't strip -- inside quotes)
+        let cleaned = '';
+        let i = 0;
+        while (i < sql.length) {
+            if (sql[i] === "'" || sql[i] === '"') {
+                // String literal — copy verbatim including escaped quotes
+                const q = sql[i];
+                cleaned += sql[i++];
+                while (i < sql.length) {
+                    cleaned += sql[i];
+                    if (sql[i] === q && (i + 1 >= sql.length || sql[i + 1] !== q)) { i++; break; }
+                    i++;
+                }
+            } else if (sql[i] === '-' && i + 1 < sql.length && sql[i + 1] === '-') {
+                // Line comment — skip to end of line
+                i += 2;
+                while (i < sql.length && sql[i] !== '\n') i++;
+            } else if (sql[i] === '/' && i + 1 < sql.length && sql[i + 1] === '*') {
+                // Block comment — skip to */
+                i += 2;
+                while (i < sql.length && !(sql[i] === '*' && i + 1 < sql.length && sql[i + 1] === '/')) i++;
+                if (i < sql.length) i += 2; // skip */
+            } else {
+                cleaned += sql[i++];
+            }
+        }
+
+        // Match: quoted strings (with '' escapes), numbers, identifiers/keywords, operators, punctuation
+        const regex = /'(?:[^']|'')*'|"(?:[^"]|"")*"|\d+(?:\.\d+)?|[A-Za-z_]\w*|[<>=!|]+|[*,().;\[\]\/+\-]/g;
         let match;
 
-        while ((match = regex.exec(sql)) !== null) {
+        while ((match = regex.exec(cleaned)) !== null) {
             const text = match[0];
             let type;
             if (text.startsWith("'") || text.startsWith('"')) {
                 type = 'string';
             } else if (/^\d/.test(text)) {
                 type = 'number';
-            } else if (keywords.includes(text.toUpperCase())) {
+            } else if (text === '.' || text === '[' || text === ']') {
+                type = 'symbol';
+            } else if (keywords.has(text.toUpperCase())) {
                 type = 'keyword';
             } else if (/[A-Za-z_]/.test(text[0])) {
                 type = 'identifier';
@@ -1863,8 +1719,8 @@ class BTreeVisualizer {
      * Draw parse tree visualization — AST tree with nodes and connections
      */
     drawParseTree(waiting = false) {
-        const width = this._canvasWidth || this.canvas.clientWidth;
-        const height = this._canvasHeight || this.canvas.clientHeight;
+        const width = this.canvas.clientWidth;
+        const height = this.canvas.clientHeight;
 
         this._clearCanvas(width, height);
 
@@ -1910,7 +1766,7 @@ class BTreeVisualizer {
         this.ctx.fillStyle = '#10b981';
         this.ctx.textBaseline = 'bottom';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`${this.parseTokens.length} tokens parsed | ${this.parseTree.children.length} statement(s)`, width / 2, height - 8);
+        this.ctx.fillText(`${this.parseTokens.length} tokens parsed | ${this.parseTree ? this.parseTree.children.length : 0} statement(s)`, width / 2, height - 8);
     }
 
     /**
@@ -2044,14 +1900,6 @@ class BTreeVisualizer {
     }
 
     /**
-     * Draw parse tokens as a flat list (kept for backward compatibility,
-     * but AST tree is now the primary view)
-     */
-    drawParseTokens() {
-        // No-op — AST tree replaced the flat token list
-    }
-
-    /**
      * Show VDBE execution start
      */
     showVdbeStart(numOpcodes) {
@@ -2070,7 +1918,7 @@ class BTreeVisualizer {
      */
     showVdbeOpcode(pc, opcode, p1, p2, p3) {
         // Validate inputs
-        if (typeof pc !== 'number' || pc < 0) {
+        if (typeof pc !== 'number' || pc < 0 || !Number.isInteger(pc)) {
             console.warn('Invalid program counter:', pc);
             return;
         }
@@ -2088,18 +1936,16 @@ class BTreeVisualizer {
             p2: p2 !== undefined ? p2 : 0,
             p3: p3 !== undefined ? p3 : 0
         };
+        this._opcodeCount = Math.max(this._opcodeCount, pc + 1);
         this.vdbeCurrentPc = pc;
 
         // Batch rendering for performance - only draw periodically
-        this._vdbeDrawPending = true;
         if (!this._vdbeDrawScheduled) {
             this._vdbeDrawScheduled = true;
-            requestAnimationFrame(() => {
-                if (this._vdbeDrawPending) {
-                    this.drawVdbeList('Executing', `Opcode ${this.vdbeCurrentPc + 1} of ${this.vdbeOpcodes.length}`);
-                    this._vdbeDrawPending = false;
-                }
+            this._vdbeRafId = requestAnimationFrame(() => {
+                this.drawVdbeList('Executing', `Opcode ${this.vdbeCurrentPc + 1} of ${this._opcodeCount}`);
                 this._vdbeDrawScheduled = false;
+                this._vdbeRafId = null;
             });
         }
     }
@@ -2108,8 +1954,15 @@ class BTreeVisualizer {
      * Show VDBE execution complete
      */
     showVdbeComplete(resultCode) {
+        // Cancel any pending "Executing" draw so it doesn't overwrite "Complete"
+        if (this._vdbeRafId !== null) {
+            cancelAnimationFrame(this._vdbeRafId);
+            this._vdbeRafId = null;
+        }
+        this._vdbeDrawScheduled = false;
+        const rcName = eventManager.resultCodeNames[resultCode] || `code ${resultCode}`;
         if (this.viewMode === 'vdbe') {
-            this.drawVdbeList('Complete', `Result code: ${resultCode}`);
+            this.drawVdbeList('Complete', `Result: ${rcName}`);
         }
     }
 
@@ -2119,8 +1972,8 @@ class BTreeVisualizer {
      */
     drawVdbeList(state, info) {
         // Use cached dimensions
-        const width = this._canvasWidth || this.canvas.clientWidth;
-        const height = this._canvasHeight || this.canvas.clientHeight;
+        const width = this.canvas.clientWidth;
+        const height = this.canvas.clientHeight;
 
         // Clear and draw background
         this._clearCanvas(width, height);
@@ -2132,7 +1985,7 @@ class BTreeVisualizer {
         this._applyTransform();
 
         // If we have individual opcodes, draw them
-        if (this.vdbeOpcodes.length > 0) {
+        if (this._opcodeCount > 0) {
             this._drawVdbeOpcodes(width, height);
             this.ctx.restore();
             return;
@@ -2150,7 +2003,7 @@ class BTreeVisualizer {
         const vdbeStarts = eventManager.getEventsByType(11).filter(e => e.data.numOpcodes !== undefined);
         const vdbeCompletes = eventManager.getEventsByType(13).filter(e => e.data.resultCode !== undefined);
 
-        const resultNames = { 0: 'OK', 100: 'ROW', 101: 'DONE' };
+        const resultNames = eventManager.resultCodeNames;
         const lineHeight = 24;
         const startY = 55;
         const maxRows = Math.floor((height - startY - 40) / lineHeight);
@@ -2218,8 +2071,8 @@ class BTreeVisualizer {
         if (highlightPc >= maxVisibleOpcodes / 2) {
             viewportStart = Math.floor(highlightPc - maxVisibleOpcodes / 2);
         }
-        viewportStart = Math.max(0, Math.min(viewportStart, this.vdbeOpcodes.length - maxVisibleOpcodes));
-        const viewportEnd = Math.min(this.vdbeOpcodes.length, viewportStart + maxVisibleOpcodes);
+        viewportStart = Math.max(0, Math.min(viewportStart, this._opcodeCount - maxVisibleOpcodes));
+        const viewportEnd = Math.min(this._opcodeCount, viewportStart + maxVisibleOpcodes);
 
         const allRows = [];
         let drawRow = 0;
@@ -2267,9 +2120,8 @@ class BTreeVisualizer {
         // Draw stats at bottom (inside pan/zoom, _drawVdbeOpcodes does not own the save/restore)
         this.ctx.fillStyle = this.colors.textLight;
         this.ctx.font = '12px sans-serif';
-        const opsFiltered = this._getDenseOpcodes();
-        const countText = `Total opcodes: ${opsFiltered.length}`;
-        const scrollText = viewportEnd < this.vdbeOpcodes.length
+        const countText = `Total opcodes: ${this._opcodeCount}`;
+        const scrollText = viewportEnd < this._opcodeCount
             ? ` (showing ${viewportStart + 1}-${viewportEnd})`
             : '';
         this.ctx.textAlign = 'left';
