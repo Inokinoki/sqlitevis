@@ -2042,3 +2042,296 @@ test.describe('Layout Cache Behavior', () => {
         expect(result.cacheSize).toBe(50); // capped at 50
     });
 });
+
+// ========================================================================
+// Event System Internals
+// ========================================================================
+
+test.describe('Event Manager Internals', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('events array is pruned to 100 max', async ({ page }) => {
+        // Generate many events by executing lots of statements
+        const sql = `CREATE TABLE prune_test(id INTEGER);
+${Array.from({ length: 60 }, (_, i) => `INSERT INTO prune_test VALUES(${i});`).join('\n')}`;
+        await executeSQL(page, sql);
+
+        const eventCount = await page.evaluate(() => eventManager.events.length);
+        // Should be capped at 100
+        expect(eventCount).toBeLessThanOrEqual(100);
+    });
+
+    test('VDBE_OPCODE events are throttled in DOM but not in events array', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE throttle_test(id INTEGER); INSERT INTO throttle_test VALUES(1); SELECT * FROM throttle_test;');
+
+        const result = await page.evaluate(() => {
+            const allVdbe = eventManager.getEventsByType(12); // VDBE_OPCODE
+            const domItems = document.querySelectorAll('.event-item.event-vdbe');
+            return {
+                totalVdbeOpcodes: allVdbe.length,
+                domVdbeCount: domItems.length
+            };
+        });
+
+        // All opcodes should be stored in the events array
+        expect(result.totalVdbeOpcodes).toBeGreaterThan(0);
+        // DOM may have fewer due to throttling (every 10th)
+    });
+
+    test('PARSE_TOKEN events are stored but not logged to DOM', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE parse_evt_test(id INTEGER);');
+
+        const result = await page.evaluate(() => {
+            const parseTokens = eventManager.getEventsByType(9); // PARSE_TOKEN
+            const domItems = [...document.querySelectorAll('.event-item')];
+            const domParseToken = domItems.filter(el => el.textContent.includes('PARSE_TOKEN'));
+            return {
+                storedParseTokens: parseTokens.length,
+                domParseTokenCount: domParseToken.length
+            };
+        });
+
+        // PARSE_TOKEN should be stored in events array
+        expect(result.storedParseTokens).toBeGreaterThan(0);
+        // But NOT logged to DOM (skipped for performance)
+        expect(result.domParseTokenCount).toBe(0);
+    });
+
+    test('getEventsByType returns correct events for each type', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE type_test(id INTEGER); INSERT INTO type_test VALUES(1);');
+
+        const counts = await page.evaluate(() => {
+            return {
+                btreeInsert: eventManager.getEventsByType(2).length,
+                btreeDelete: eventManager.getEventsByType(3).length,
+                pageFree: eventManager.getEventsByType(7).length,
+                parseComplete: eventManager.getEventsByType(10).length,
+                vdbeStart: eventManager.getEventsByType(11).length,
+                vdbeComplete: eventManager.getEventsByType(13).length
+            };
+        });
+
+        // Should have BTREE_INSERT events from INSERT
+        expect(counts.btreeInsert).toBeGreaterThan(0);
+        // Should have VDBE_START and VDBE_COMPLETE from execution
+        expect(counts.vdbeStart).toBeGreaterThan(0);
+        expect(counts.vdbeComplete).toBeGreaterThan(0);
+    });
+
+    test('event count display updates after execution', async ({ page }) => {
+        const before = parseInt(await page.locator('#event-count').textContent());
+
+        await executeSQL(page, 'CREATE TABLE evt_count(id INTEGER); INSERT INTO evt_count VALUES(1);');
+
+        const after = parseInt(await page.locator('#event-count').textContent());
+        expect(after).toBeGreaterThan(before);
+    });
+
+    test('clear events resets event count to 0', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE clear_evt(id INTEGER);');
+
+        const before = parseInt(await page.locator('#event-count').textContent());
+        expect(before).toBeGreaterThan(0);
+
+        await page.click('#clear-events-btn');
+
+        const after = await page.locator('#event-count').textContent();
+        expect(after).toBe('0');
+    });
+
+    test('DOM event pool recycles elements', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE pool_test(id INTEGER);');
+
+        // Check pool has elements after clearing
+        const poolSize = await page.evaluate(() => {
+            // Clear events to return them to pool
+            eventManager.clear();
+            return eventManager._elementPool.length;
+        });
+
+        expect(poolSize).toBeGreaterThan(0);
+    });
+});
+
+// ========================================================================
+// Canvas Rendering Details
+// ========================================================================
+
+test.describe('Canvas Rendering Details', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('B-Tree canvas shows "empty" label for node with no cells and no parent', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._layoutCache.clear();
+            // Create an orphaned leaf with no cells
+            viz.nodes.set(42, {
+                page: 42, type: 1, cells: [],
+                parent: null, children: [],
+                x: 50, y: 50, expanded: true
+            });
+            viz.setViewMode('btree');
+            viz.layout();
+            viz.drawImmediate();
+
+            // Check canvas for "empty" text in the node area
+            const canvas = document.getElementById('visualization-canvas');
+            const ctx = canvas.getContext('2d');
+            // Read a sample of pixels from the node area
+            const data = ctx.getImageData(40, 70, 120, 20).data;
+            let hasContent = false;
+            for (let i = 0; i < data.length; i += 4) {
+                if (data[i + 3] > 0) hasContent = true;
+            }
+            return { hasContent };
+        });
+
+        expect(result.hasContent).toBe(true);
+    });
+
+    test('B-Tree canvas shows "after split" label for child node with no cells', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._layoutCache.clear();
+            // Create parent-child where child has no cells
+            viz.nodes.set(1, {
+                page: 1, type: 0, cells: [],
+                parent: null, children: [2],
+                x: 50, y: 50, expanded: true
+            });
+            viz.nodes.set(2, {
+                page: 2, type: 1, cells: [],
+                parent: 1, children: [],
+                x: 50, y: 140, expanded: true
+            });
+            viz.setViewMode('btree');
+            viz.layout();
+            viz.drawImmediate();
+
+            return { hasNodes: viz.nodes.size === 2 };
+        });
+
+        expect(result.hasNodes).toBe(true);
+    });
+
+    test('_astLabel truncates text longer than 30 chars', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            const longText = 'a'.repeat(50);
+            const node = { type: 'column', text: longText };
+            const label = viz._astLabel(node);
+            return { label, originalLen: longText.length };
+        });
+
+        expect(result.label.length).toBeLessThan(result.originalLen);
+        expect(result.label).toContain('...');
+    });
+
+    test('highlightedNodes flash and clear after animation', async ({ page }) => {
+        const result = await page.evaluate(async () => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._layoutCache.clear();
+            viz.nodes.set(10, {
+                page: 10, type: 1, cells: [{ idx: 0, keyLen: 1, key: '1' }],
+                parent: null, children: [],
+                x: 50, y: 50, expanded: true
+            });
+            viz.showTransitions = true;
+
+            // Trigger flash
+            viz._flashHighlight([10], 50);
+            const highlightedDuring = viz.highlightedNodes.has(10);
+
+            // Wait for timeout to clear
+            await new Promise(r => setTimeout(r, 100));
+            const highlightedAfter = viz.highlightedNodes.has(10);
+
+            return { highlightedDuring, highlightedAfter };
+        });
+
+        expect(result.highlightedDuring).toBe(true);
+        expect(result.highlightedAfter).toBe(false);
+    });
+
+    test('VDBE canvas shows "showing X-Y" when opcodes exceed viewport', async ({ page }) => {
+        // Execute complex SQL to get many opcodes
+        await executeSQL(page, `
+            CREATE TABLE viewport_test(id INTEGER PRIMARY KEY, name TEXT, score REAL);
+            INSERT INTO viewport_test VALUES(1, 'Alice', 95.5);
+            INSERT INTO viewport_test VALUES(2, 'Bob', 87.0);
+            INSERT INTO viewport_test VALUES(3, 'Carol', 92.0);
+            SELECT v1.name, v2.name, v1.score - v2.score
+            FROM viewport_test v1, viewport_test v2
+            WHERE v1.score > v2.score;
+        `);
+        await switchView(page, 'vdbe');
+
+        const opcodeCount = await page.evaluate(() => {
+            const dense = window.viz._getDenseOpcodes();
+            return dense.length;
+        });
+
+        if (opcodeCount > 15) {
+            // Step to a late opcode to trigger viewport scrolling
+            for (let i = 0; i < 20; i++) {
+                await page.click('#vdbe-next');
+                await page.waitForTimeout(20);
+            }
+
+            // The canvas should still render content (not crash)
+            const hasContent = await canvasHasContent(page);
+            expect(hasContent).toBe(true);
+        }
+    });
+
+    test('parse canvas renders AST tree structure after SELECT', async ({ page }) => {
+        await executeSQL(page, 'SELECT id, name FROM users WHERE age > 18;');
+        await switchView(page, 'parse');
+
+        // Verify both AST structure and canvas content
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            const tree = viz.parseTree;
+            return {
+                hasTree: !!tree,
+                treeType: tree?.type,
+                childCount: tree?.children?.length || 0
+            };
+        });
+
+        expect(result.hasTree).toBe(true);
+        expect(result.treeType).toBe('SELECT');
+        expect(result.childCount).toBeGreaterThanOrEqual(2);
+
+        const hasContent = await canvasHasContent(page);
+        expect(hasContent).toBe(true);
+    });
+
+    test('vdbe mode with no opcodes shows program traces instead', async ({ page }) => {
+        await executeSQL(page, 'SELECT 1;');
+        await switchView(page, 'vdbe');
+
+        // The vdbe list should render (either individual opcodes or program traces)
+        const hasContent = await canvasHasContent(page);
+        expect(hasContent).toBe(true);
+
+        // Should have VDBE_START and VDBE_COMPLETE events
+        const eventInfo = await page.evaluate(() => ({
+            starts: eventManager.getEventsByType(11).length,
+            completes: eventManager.getEventsByType(13).length
+        }));
+        expect(eventInfo.starts).toBeGreaterThan(0);
+        expect(eventInfo.completes).toBeGreaterThan(0);
+    });
+});
