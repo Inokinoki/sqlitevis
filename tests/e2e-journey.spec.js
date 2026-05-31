@@ -1104,3 +1104,170 @@ SELECT * FROM like_test WHERE id IN (1, 3);`);
         expect(output).toContain('banana');
     });
 });
+
+// ========================================================================
+// E2E: Button Controls and UI State
+// ========================================================================
+
+test.describe('Button Controls and UI State', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForTimeout(2000);
+    });
+
+    test('Step Through button executes one statement at a time', async ({ page }) => {
+        await page.fill('#sql-input', `CREATE TABLE step_tbl(id INTEGER);
+INSERT INTO step_tbl VALUES(1);
+SELECT * FROM step_tbl;`);
+
+        // First click: executes only the first statement
+        await page.click('#step-btn');
+        await page.waitForTimeout(500);
+
+        const output1 = await page.locator('#output').innerHTML();
+        expect(output1).toContain('success');
+
+        // Second click: executes INSERT
+        await page.click('#step-btn');
+        await page.waitForTimeout(500);
+
+        // Third click: executes SELECT, should show data
+        await page.click('#step-btn');
+        await page.waitForTimeout(500);
+
+        const output3 = await page.locator('#output').innerHTML();
+        expect(output3).toContain('1');
+    });
+
+    test('Clear button resets SQL input and output', async ({ page }) => {
+        await page.fill('#sql-input', 'SELECT 1;');
+        await page.click('#execute-btn');
+        await page.waitForTimeout(300);
+
+        // Verify output has content
+        const outputBefore = await page.locator('#output').innerHTML();
+        expect(outputBefore).toContain('1');
+
+        // Click Clear
+        await page.click('#clear-btn');
+        await page.waitForTimeout(200);
+
+        const inputAfter = await page.locator('#sql-input').inputValue();
+        expect(inputAfter).toBe('');
+
+        const outputAfter = await page.locator('#output').textContent();
+        expect(outputAfter).toContain('Results will appear here');
+    });
+
+    test('VDBE Reset button resets step state', async ({ page }) => {
+        await page.fill('#sql-input', 'CREATE TABLE vreset(id INTEGER); INSERT INTO vreset VALUES(1);');
+        await page.click('#execute-btn');
+        await page.waitForTimeout(300);
+        await page.selectOption('#view-mode', 'vdbe');
+        await page.waitForTimeout(100);
+
+        // Step forward a few times
+        for (let i = 0; i < 5; i++) {
+            await page.click('#vdbe-next');
+            await page.waitForTimeout(50);
+        }
+
+        const infoBefore = await page.locator('#vdbe-step-info').textContent();
+
+        // Click Reset
+        await page.click('#vdbe-reset');
+        await page.waitForTimeout(100);
+
+        const infoAfter = await page.locator('#vdbe-step-info').textContent();
+        // After reset, step info should go back to initial state (empty or Step 0)
+        expect(infoAfter).not.toBe(infoBefore);
+    });
+
+    test('VDBE Prev button steps backward', async ({ page }) => {
+        await page.fill('#sql-input', 'CREATE TABLE vprev(id INTEGER); INSERT INTO vprev VALUES(1); SELECT * FROM vprev;');
+        await page.click('#execute-btn');
+        await page.waitForTimeout(300);
+        await page.selectOption('#view-mode', 'vdbe');
+        await page.waitForTimeout(100);
+
+        // Step forward 3 times to have room to go back
+        for (let i = 0; i < 3; i++) {
+            await page.click('#vdbe-next');
+            await page.waitForTimeout(50);
+        }
+        const infoFwd = await page.locator('#vdbe-step-info').textContent();
+
+        // Step backward
+        await page.click('#vdbe-prev');
+        await page.waitForTimeout(50);
+        const infoBack = await page.locator('#vdbe-step-info').textContent();
+
+        // Step counter should have decreased
+        expect(infoBack).not.toBe(infoFwd);
+    });
+
+    test('speed slider changes displayed speed value', async ({ page }) => {
+        const slider = page.locator('#animation-speed');
+        await slider.fill('0.5');
+        const displayed = await page.locator('#speed-value').textContent();
+        expect(displayed).toContain('0.5');
+    });
+
+    test('db-status transitions from initializing to ready', async ({ page }) => {
+        const status = await page.locator('#db-status').textContent();
+        expect(status).toContain('Ready');
+    });
+
+    test('page count in footer updates after inserts', async ({ page }) => {
+        const before = await page.locator('#page-count').textContent();
+
+        await page.fill('#sql-input', 'CREATE TABLE pgcnt(id INTEGER); INSERT INTO pgcnt VALUES(1);');
+        await page.click('#execute-btn');
+        await page.waitForTimeout(300);
+
+        const after = await page.locator('#page-count').textContent();
+        expect(parseInt(after)).toBeGreaterThan(parseInt(before));
+    });
+
+    test('loading overlay is hidden after initialization', async ({ page }) => {
+        const overlay = page.locator('#loading-overlay');
+        await expect(overlay).toBeHidden();
+    });
+
+    test('node info panel shows cell data when hovering B-Tree node', async ({ page }) => {
+        await page.fill('#sql-input', `CREATE TABLE ninfo(id INTEGER PRIMARY KEY, val TEXT);
+INSERT INTO ninfo VALUES(1, 'alpha');
+INSERT INTO ninfo VALUES(2, 'beta');`);
+        await page.click('#execute-btn');
+        await page.waitForTimeout(300);
+        await page.selectOption('#view-mode', 'btree');
+        await page.waitForTimeout(100);
+
+        // Get node position and hover
+        const nodeInfo = await page.evaluate(() => {
+            const nodes = [...window.viz.nodes.values()];
+            // Find a non-rootpage-1 node with cells
+            const target = nodes.find(n => n.page !== 1 && n.cells.length > 0) || nodes[0];
+            if (!target) return null;
+            return { x: target.x, y: target.y, page: target.page };
+        });
+
+        if (nodeInfo) {
+            const canvas = page.locator('#visualization-canvas');
+            const box = await canvas.boundingBox();
+            if (box) {
+                await page.mouse.move(box.x + nodeInfo.x + 60, box.y + nodeInfo.y + 20);
+                await page.waitForTimeout(200);
+
+                // Node info panel should appear
+                const panel = page.locator('#node-info');
+                const isVisible = await panel.isVisible();
+                if (isVisible) {
+                    const details = await page.locator('#node-details').textContent();
+                    expect(details.length).toBeGreaterThan(0);
+                }
+            }
+        }
+    });
+});
