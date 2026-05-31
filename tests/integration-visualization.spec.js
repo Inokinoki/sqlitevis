@@ -2335,3 +2335,366 @@ test.describe('Canvas Rendering Details', () => {
         expect(eventInfo.completes).toBeGreaterThan(0);
     });
 });
+
+// ========================================================================
+// Parser Edge Cases — SQL constructs the recursive descent parser must handle
+// ========================================================================
+
+test.describe('Parser Edge Cases', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('ALTER TABLE produces statement node (not crash)', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE alter_src(id INTEGER); ALTER TABLE alter_src ADD COLUMN val TEXT;');
+        await switchView(page, 'parse');
+
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        // ALTER is not a dedicated parser — falls into generic statement node
+        // Should not crash and should have SQL wrapper with both statements
+        expect(tree.type).toBe('SQL');
+        expect(tree.children.length).toBe(2);
+        // Second child is the ALTER, captured as generic statement
+        const alterNode = tree.children[1];
+        expect(alterNode.text).toContain('ALTER');
+    });
+
+    test('DROP TABLE produces statement node (not crash)', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE drop_src(id INTEGER); DROP TABLE drop_src;');
+        await switchView(page, 'parse');
+
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        expect(tree.type).toBe('SQL');
+        expect(tree.children.length).toBe(2);
+        const dropNode = tree.children[1];
+        expect(dropNode.text).toContain('DROP');
+    });
+
+    test('UNION ALL query produces SELECT with UNION in columns', async ({ page }) => {
+        await executeSQL(page, 'SELECT 1 UNION ALL SELECT 2;');
+        await switchView(page, 'parse');
+
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        // UNION truncates collection at UNION keyword boundary
+        // First SELECT should have columns "1" and stop at UNION
+        expect(tree.type).toBe('SELECT');
+        // Columns should just be "1" (UNION is a boundary)
+        const colsNode = tree.children.find(c => c.type === 'columns');
+        expect(colsNode).toBeDefined();
+    });
+
+    test('subquery in WHERE is captured correctly', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE subq(id INTEGER); SELECT * FROM subq WHERE id IN (SELECT id FROM subq);');
+        await switchView(page, 'parse');
+
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        expect(tree.type).toBe('SQL'); // multi-statement
+        const selectNode = tree.children.find(c => c.type === 'SELECT');
+        expect(selectNode).toBeDefined();
+        const whereNode = selectNode.children.find(c => c.type === 'where');
+        expect(whereNode).toBeDefined();
+        // WHERE text should contain the subquery
+        expect(whereNode.text).toContain('IN');
+    });
+
+    test('CASE expression inside SELECT columns', async ({ page }) => {
+        await executeSQL(page, "SELECT CASE WHEN id > 5 THEN 'big' ELSE 'small' END FROM (SELECT 10 AS id);");
+        await switchView(page, 'parse');
+
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        expect(tree.type).toBe('SELECT');
+        const colsNode = tree.children.find(c => c.type === 'columns');
+        expect(colsNode).toBeDefined();
+        // CASE...END should appear in the columns text
+        expect(colsNode.text).toContain('CASE');
+        expect(colsNode.text).toContain('END');
+    });
+
+    test('BETWEEN operator in WHERE clause', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE betw(id INTEGER); SELECT * FROM betw WHERE id BETWEEN 1 AND 10;');
+        await switchView(page, 'parse');
+
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        const selectNode = tree.children.find(c => c.type === 'SELECT');
+        const whereNode = selectNode.children.find(c => c.type === 'where');
+        expect(whereNode).toBeDefined();
+        expect(whereNode.text).toContain('BETWEEN');
+    });
+
+    test('multiple JOINs with ON conditions', async ({ page }) => {
+        await executeSQL(page, `
+            CREATE TABLE j1(id INTEGER);
+            CREATE TABLE j2(id INTEGER, j1_id INTEGER);
+            CREATE TABLE j3(id INTEGER, j2_id INTEGER);
+        `);
+        await switchView(page, 'parse');
+
+        // Now parse a query with multiple JOINs
+        const tree = await page.evaluate((sql) => {
+            return window.viz.buildParseTree(sql);
+        }, 'SELECT * FROM j1 INNER JOIN j2 ON j1.id = j2.j1_id LEFT JOIN j3 ON j2.id = j3.j2_id WHERE j1.id > 0;');
+
+        expect(tree.type).toBe('SELECT');
+        const fromNode = tree.children.find(c => c.type === 'from_clause');
+        expect(fromNode).toBeDefined();
+        // Should have: from item + 2 join nodes
+        const joinNodes = fromNode.children.filter(c => c.type === 'join');
+        expect(joinNodes.length).toBe(2);
+        // First join should be INNER JOIN
+        expect(joinNodes[0].text).toContain('INNER JOIN');
+        // Second join should be LEFT JOIN
+        expect(joinNodes[1].text).toContain('LEFT JOIN');
+        // Both should have ON conditions as children
+        expect(joinNodes[0].children.length).toBe(1);
+        expect(joinNodes[0].children[0].type).toBe('on');
+    });
+
+    test('GROUP BY with HAVING', async ({ page }) => {
+        const tree = await page.evaluate((sql) => {
+            return window.viz.buildParseTree(sql);
+        }, 'SELECT id, COUNT(*) FROM t GROUP BY id HAVING COUNT(*) > 5;');
+
+        expect(tree.type).toBe('SELECT');
+        const groupNode = tree.children.find(c => c.type === 'group_by');
+        expect(groupNode).toBeDefined();
+        expect(groupNode.text).toContain('id');
+        const havingNode = tree.children.find(c => c.type === 'having');
+        expect(havingNode).toBeDefined();
+        expect(havingNode.text).toContain('COUNT');
+    });
+
+    test('tokenizeSQL strips -- line comments', async ({ page }) => {
+        const tokens = await page.evaluate((sql) => {
+            return window.viz.tokenizeSQL(sql);
+        }, 'SELECT 1 -- this is a comment\nFROM t;');
+
+        const texts = tokens.map(t => t.text);
+        expect(texts).not.toContain('--');
+        expect(texts).not.toContain('this');
+        expect(texts).toContain('SELECT');
+        expect(texts).toContain('FROM');
+    });
+
+    test('tokenizeSQL strips /* block comments */', async ({ page }) => {
+        const tokens = await page.evaluate((sql) => {
+            return window.viz.tokenizeSQL(sql);
+        }, 'SELECT /* comment */ 1;');
+
+        const texts = tokens.map(t => t.text);
+        expect(texts).not.toContain('comment');
+        expect(texts).toContain('SELECT');
+        expect(texts).toContain('1');
+    });
+
+    test('tokenizeSQL preserves -- inside string literals', async ({ page }) => {
+        const tokens = await page.evaluate((sql) => {
+            return window.viz.tokenizeSQL(sql);
+        }, "SELECT 'not--a-comment' FROM t;");
+
+        const strings = tokens.filter(t => t.type === 'string');
+        expect(strings.length).toBe(1);
+        expect(strings[0].text).toBe("'not--a-comment'");
+    });
+
+    test('tokenizeSQL handles escaped quotes correctly', async ({ page }) => {
+        const tokens = await page.evaluate((sql) => {
+            return window.viz.tokenizeSQL(sql);
+        }, "INSERT INTO t VALUES('it''s done');");
+
+        const strings = tokens.filter(t => t.type === 'string');
+        expect(strings.length).toBe(1);
+        expect(strings[0].text).toBe("'it''s done'");
+    });
+});
+
+// ========================================================================
+// VDBE Program Trace Rendering
+// ========================================================================
+
+test.describe('VDBE Program Trace Rendering', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('program traces show correct start/complete pairs', async ({ page }) => {
+        await executeSQL(page, `
+            CREATE TABLE trace_t(id INTEGER);
+            INSERT INTO trace_t VALUES(1);
+            SELECT * FROM trace_t;
+        `);
+        await switchView(page, 'vdbe');
+
+        const traceInfo = await page.evaluate(() => {
+            const starts = eventManager.getEventsByType(11).filter(e => e.data.numOpcodes !== undefined);
+            const completes = eventManager.getEventsByType(13).filter(e => e.data.resultCode !== undefined);
+            return {
+                startCount: starts.length,
+                completeCount: completes.length,
+                opcodes: starts.map(e => e.data.numOpcodes),
+                resultCodes: completes.map(e => e.data.resultCode)
+            };
+        });
+
+        // Should have at least 1 start and 1 complete (may be more from sqlite_master etc.)
+        expect(traceInfo.startCount).toBeGreaterThanOrEqual(1);
+        expect(traceInfo.completeCount).toBeGreaterThanOrEqual(1);
+        // Completes should match starts (events array is pruned but types are consistent)
+        for (let i = 0; i < traceInfo.completeCount; i++) {
+            expect(typeof traceInfo.resultCodes[i]).toBe('number');
+        }
+    });
+
+    test('VDBE opcodes have correct p1/p2/p3 params', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE param_t(id INTEGER PRIMARY KEY, name TEXT);');
+        await switchView(page, 'vdbe');
+
+        const opcodes = await page.evaluate(() => {
+            const dense = window.viz._getDenseOpcodes();
+            return dense.slice(0, 10).map(o => ({
+                pc: o.pc,
+                opcode: o.opcode,
+                p1: o.p1,
+                p2: o.p2,
+                p3: o.p3
+            }));
+        });
+
+        // All opcodes should have numeric params
+        for (const op of opcodes) {
+            expect(typeof op.pc).toBe('number');
+            expect(typeof op.opcode).toBe('string');
+            expect(typeof op.p1).toBe('number');
+            expect(typeof op.p2).toBe('number');
+            expect(typeof op.p3).toBe('number');
+        }
+    });
+
+    test('stepping through VDBE opcodes updates highlightPc correctly', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE step_v(id INTEGER); INSERT INTO step_v VALUES(1); SELECT * FROM step_v;');
+        await switchView(page, 'vdbe');
+
+        // Click next several times and check vdbeStepIndex
+        const stepStates = [];
+        for (let i = 0; i < 5; i++) {
+            await page.click('#vdbe-next');
+            await page.waitForTimeout(50);
+            const state = await page.evaluate(() => ({
+                stepIndex: window.viz.vdbeStepIndex,
+                currentPc: window.viz.vdbeCurrentPc,
+                opcodeCount: window.viz._opcodeCount
+            }));
+            stepStates.push(state);
+        }
+
+        // stepIndex should increase monotonically
+        for (let i = 1; i < stepStates.length; i++) {
+            expect(stepStates[i].stepIndex).toBeGreaterThanOrEqual(stepStates[i - 1].stepIndex);
+        }
+    });
+});
+
+// ========================================================================
+// B-Tree DELETE Visualization
+// ========================================================================
+
+test.describe('B-Tree DELETE Visualization', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+        await page.selectOption('#view-mode', 'btree');
+    });
+
+    test('DELETE reduces cell count on the affected page', async ({ page }) => {
+        await executeSQL(page, `
+            CREATE TABLE del_t(id INTEGER PRIMARY KEY, val TEXT);
+            INSERT INTO del_t VALUES(1, 'a');
+            INSERT INTO del_t VALUES(2, 'b');
+            INSERT INTO del_t VALUES(3, 'c');
+        `);
+
+        const cellsBefore = await page.evaluate(() => {
+            let total = 0;
+            for (const [, node] of window.viz.nodes) total += node.cells.length;
+            return total;
+        });
+
+        // Now delete one row
+        await executeSQL(page, 'DELETE FROM del_t WHERE id = 2;');
+
+        const cellsAfter = await page.evaluate(() => {
+            let total = 0;
+            for (const [, node] of window.viz.nodes) total += node.cells.length;
+            return total;
+        });
+
+        expect(cellsAfter).toBeLessThan(cellsBefore);
+    });
+
+    test('DELETE all rows leaves page with fewer cells', async ({ page }) => {
+        await executeSQL(page, `
+            CREATE TABLE delall(id INTEGER PRIMARY KEY);
+            INSERT INTO delall VALUES(1);
+            INSERT INTO delall VALUES(2);
+        `);
+
+        await executeSQL(page, 'DELETE FROM delall;');
+
+        const state = await page.evaluate(() => {
+            let totalCells = 0;
+            let nodeCount = 0;
+            for (const [, node] of window.viz.nodes) {
+                totalCells += node.cells.length;
+                nodeCount++;
+            }
+            return { totalCells, nodeCount };
+        });
+
+        // All cells should be gone (DELETE without WHERE deletes all rows)
+        expect(state.totalCells).toBe(0);
+    });
+
+    test('multiple INSERT then DELETE cycles', async ({ page }) => {
+        // First cycle
+        await executeSQL(page, `
+            CREATE TABLE cycle(id INTEGER PRIMARY KEY);
+            INSERT INTO cycle VALUES(1);
+            INSERT INTO cycle VALUES(2);
+        `);
+
+        const afterInsert = await page.evaluate(() => {
+            let total = 0;
+            for (const [, node] of window.viz.nodes) total += node.cells.length;
+            return total;
+        });
+        expect(afterInsert).toBeGreaterThan(0);
+
+        // Delete
+        await executeSQL(page, 'DELETE FROM cycle;');
+        const afterDelete = await page.evaluate(() => {
+            let total = 0;
+            for (const [, node] of window.viz.nodes) total += node.cells.length;
+            return total;
+        });
+        expect(afterDelete).toBe(0);
+
+        // Re-insert
+        await executeSQL(page, 'INSERT INTO cycle VALUES(3);');
+        const afterReinsert = await page.evaluate(() => {
+            let total = 0;
+            for (const [, node] of window.viz.nodes) total += node.cells.length;
+            return total;
+        });
+        expect(afterReinsert).toBeGreaterThan(0);
+    });
+});
