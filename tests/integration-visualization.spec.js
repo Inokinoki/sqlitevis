@@ -2965,3 +2965,227 @@ test.describe('Stress Tests: B-Tree, Parse, VDBE', () => {
         expect(stepIndex).toBe(-1);
     });
 });
+
+// ========================================================================
+// splitPage and showNodeInfo Edge Cases
+// ========================================================================
+
+test.describe('splitPage and Node Info Edge Cases', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('splitPage balance_quick moves cells to new sibling', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._layoutCache.clear();
+
+            // Create a page with 4 cells
+            viz.addPage(10, 1, null);
+            for (let i = 0; i < 4; i++) viz.addCell(10, i, i + 1);
+
+            // Sibling split: move cells from index 2 onward
+            viz.splitPage(10, 11, 2, 1); // type=1 = balance_quick
+
+            const orig = viz.nodes.get(10);
+            const newPg = viz.nodes.get(11);
+            return {
+                origCells: orig?.cells.length,
+                newCells: newPg?.cells.length,
+                newParent: newPg?.parent,
+                newType: newPg?.type
+            };
+        });
+
+        // Original keeps cells 0-1 (2 cells)
+        expect(result.origCells).toBe(2);
+        // New page gets cells 2-3 (2 cells)
+        expect(result.newCells).toBe(2);
+        // New page is a sibling (same parent: null)
+        expect(result.newParent).toBeNull();
+        // New page inherits original's type (leaf=1)
+        expect(result.newType).toBe(1);
+    });
+
+    test('splitPage balance_deeper creates parent-child relationship', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._layoutCache.clear();
+
+            // Create root page with cells
+            viz.addPage(5, 1, null);
+            viz.addCell(5, 0, 1);
+            viz.addCell(5, 1, 2);
+
+            // Root split: page 5 becomes interior, page 6 gets old content
+            viz.splitPage(5, 6, 0, 2); // type=2 = balance_deeper
+
+            const root = viz.nodes.get(5);
+            const child = viz.nodes.get(6);
+            return {
+                rootType: root?.type,
+                rootCells: root?.cells.length,
+                rootChildren: root?.children,
+                childParent: child?.parent,
+                childCells: child?.cells.length,
+                childType: child?.type
+            };
+        });
+
+        // Root becomes interior (type 0)
+        expect(result.rootType).toBe(0);
+        // Root has no cells (cleared)
+        expect(result.rootCells).toBe(0);
+        // Root's children includes the new page
+        expect(result.rootChildren).toContain(6);
+        // Child's parent is root
+        expect(result.childParent).toBe(5);
+        // Child inherits the old cells
+        expect(result.childCells).toBe(2);
+        // Child is a leaf
+        expect(result.childType).toBe(1);
+    });
+
+    test('splitPage with non-existent original page does not crash', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            window.viz.nodes.clear();
+            // type=1 (balance_quick) — should return early
+            window.viz.splitPage(999, 1000, 0, 1);
+            // type=2 (balance_deeper) — original is null, should not crash
+            window.viz.splitPage(999, 1000, 0, 2);
+            return { crashed: false, nodeCount: window.viz.nodes.size };
+        });
+
+        expect(result.crashed).toBe(false);
+        // balance_deeper calls addPage for newPage even if original is null
+        expect(result.nodeCount).toBeGreaterThanOrEqual(0);
+    });
+
+    test('splitPage with undefined splitCell uses 0 as default', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._layoutCache.clear();
+
+            viz.addPage(20, 1, null);
+            viz.addCell(20, 0, 10);
+            viz.addCell(20, 1, 20);
+
+            // undefined splitCell → should default to 0
+            viz.splitPage(20, 21, undefined, 1);
+
+            const orig = viz.nodes.get(20);
+            const nw = viz.nodes.get(21);
+            return {
+                origCells: orig?.cells.length,
+                newCells: nw?.cells.length
+            };
+        });
+
+        // All cells moved to new page (split from 0 = all)
+        expect(result.origCells).toBe(0);
+        expect(result.newCells).toBe(2);
+    });
+
+    test('showNodeInfo displays correct page metadata', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+
+        const info = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(42, 1, null);
+            viz.addCell(42, 0, 100);
+            viz.addCell(42, 1, 200);
+
+            const node = viz.nodes.get(42);
+            viz.showNodeInfo(node);
+
+            const details = document.getElementById('node-details');
+            return {
+                visible: !document.getElementById('node-info').classList.contains('hidden'),
+                text: details?.textContent || ''
+            };
+        });
+
+        expect(info.visible).toBe(true);
+        expect(info.text).toContain('42');
+        expect(info.text).toContain('Leaf');
+        expect(info.text).toContain('2'); // 2 cells
+        expect(info.text).toContain('100');
+    });
+
+    test('showNodeInfo shows "No cells" for empty page', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+
+        const info = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(99, 1, null);
+
+            const node = viz.nodes.get(99);
+            viz.showNodeInfo(node);
+
+            const details = document.getElementById('node-details');
+            return { text: details?.textContent || '' };
+        });
+
+        expect(info.text).toContain('No cells');
+    });
+
+    test('showNodeInfo shows "Interior" for type 0 nodes', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+
+        const info = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(50, 0, null); // interior
+
+            const node = viz.nodes.get(50);
+            viz.showNodeInfo(node);
+
+            const details = document.getElementById('node-details');
+            return { text: details?.textContent || '' };
+        });
+
+        expect(info.text).toContain('Interior');
+    });
+
+    test('showNodeInfo caps cell display at 10 with "... and N more"', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+
+        const info = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(77, 1, null);
+            for (let i = 0; i < 15; i++) viz.addCell(77, i, i + 1);
+
+            viz.showNodeInfo(viz.nodes.get(77));
+
+            const details = document.getElementById('node-details');
+            return { text: details?.textContent || '' };
+        });
+
+        expect(info.text).toContain('... and 5 more');
+    });
+
+    test('hideNodeInfo adds hidden class', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.addPage(1, 1, null);
+            viz.showNodeInfo(viz.nodes.get(1));
+            const visibleBefore = !document.getElementById('node-info').classList.contains('hidden');
+            viz.hideNodeInfo();
+            const hiddenAfter = document.getElementById('node-info').classList.contains('hidden');
+            return { visibleBefore, hiddenAfter };
+        });
+
+        expect(result.visibleBefore).toBe(true);
+        expect(result.hiddenAfter).toBe(true);
+    });
+});

@@ -579,13 +579,17 @@ class BTreeVisualizer {
             // balance_deeper: root page splits, tree grows one level deeper.
             // originalPage (root) becomes interior node, newPage gets old content.
             // originalPage.children now includes newPage.
+            const oldCells = original ? original.cells.slice() : [];
+            const oldType = original ? original.type : 1;
             if (original) {
                 original.cells = [];
                 original.type = 0; // interior
                 this._linkChild(originalPage, newPage);
             }
             // Create the child page that holds the old root content
-            this.addPage(newPage, 1, originalPage);
+            this.addPage(newPage, oldType, originalPage);
+            const newChild = this.nodes.get(newPage);
+            if (newChild) newChild.cells = oldCells;
         } else {
             // balance_quick: sibling split. New page is a sibling of original.
             if (!original) return;
@@ -593,7 +597,9 @@ class BTreeVisualizer {
             const newNode = this.nodes.get(newPage);
 
             // Move cells from split point onward
-            const cellsToMove = original.cells.splice(splitCell);
+            if (!newNode) return;
+            const splitIdx = Math.max(0, Math.min(splitCell || 0, original.cells.length));
+            const cellsToMove = original.cells.splice(splitIdx);
             newNode.cells = cellsToMove;
 
             // Add new page as sibling (same parent)
