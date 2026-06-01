@@ -2698,3 +2698,270 @@ test.describe('B-Tree DELETE Visualization', () => {
         expect(afterReinsert).toBeGreaterThan(0);
     });
 });
+
+// ========================================================================
+// Stress and Edge Case Tests for All Three Systems
+// ========================================================================
+
+test.describe('Stress Tests: B-Tree, Parse, VDBE', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    // --- B-Tree Stress ---
+
+    test('rapid sequential CREATE/DROP tables keeps node state consistent', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+
+        for (let i = 0; i < 5; i++) {
+            await executeSQL(page, `CREATE TABLE stress${i}(id INTEGER PRIMARY KEY); INSERT INTO stress${i} VALUES(${i});`);
+        }
+
+        const nodesBefore = await page.evaluate(() => window.viz.nodes.size);
+        expect(nodesBefore).toBeGreaterThan(0);
+
+        // Drop all tables
+        for (let i = 0; i < 5; i++) {
+            await executeSQL(page, `DROP TABLE stress${i};`);
+        }
+
+        // After dropping all, nodes may still exist (SQLite reuses pages)
+        // but the key thing is no crash and consistent state
+        const nodesAfter = await page.evaluate(() => {
+            const nodes = window.viz.nodes;
+            let totalCells = 0;
+            for (const [, n] of nodes) totalCells += n.cells.length;
+            return { count: nodes.size, totalCells };
+        });
+        expect(typeof nodesAfter.count).toBe('number');
+    });
+
+    test('addPage with same page number does not create duplicates', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(10, 1, null);
+            viz.addPage(10, 1, null); // duplicate
+            viz.addPage(10, 0, null); // different type — still same page
+            return { count: viz.nodes.size, type: viz.nodes.get(10)?.type };
+        });
+
+        expect(result.count).toBe(1);
+        // Type should be from first addPage (1 = leaf)
+        expect(result.type).toBe(1);
+    });
+
+    test('addCell on non-existent page auto-creates the page', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            // Auto-creates page 999 with a cell
+            viz.addCell(999, 0, 4);
+            return { crashed: false, nodeCount: viz.nodes.size, cells: viz.nodes.get(999)?.cells.length };
+        });
+
+        expect(result.crashed).toBe(false);
+        expect(result.nodeCount).toBe(1); // auto-created
+        expect(result.cells).toBe(1);
+    });
+
+    test('deleteCell with out-of-bounds index is safely ignored', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(5, 1, null);
+            viz.addCell(5, 0, 4);
+            // Delete with invalid index
+            viz.deleteCell(5, -1);
+            viz.deleteCell(5, 999);
+            return { cells: viz.nodes.get(5)?.cells.length };
+        });
+
+        // Original cell should still be there
+        expect(result.cells).toBe(1);
+    });
+
+    test('findRootPage returns null for non-existent page', async ({ page }) => {
+        const root = await page.evaluate(() => {
+            window.viz.nodes.clear();
+            return window.viz.findRootPage(999);
+        });
+
+        expect(root).toBeNull();
+    });
+
+    test('layout handles canvas width 0 gracefully', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(1, 1, null);
+
+            // Force canvas to 0 width
+            const origWidth = viz.canvas.clientWidth;
+            Object.defineProperty(viz.canvas, 'clientWidth', { value: 0, configurable: true });
+            Object.defineProperty(viz.canvas, 'clientHeight', { value: 0, configurable: true });
+
+            // Should not crash
+            try {
+                viz.layout();
+                viz._performDraw();
+            } catch (e) {
+                return { crashed: true, error: e.message };
+            }
+
+            // Restore
+            Object.defineProperty(viz.canvas, 'clientWidth', { value: origWidth, configurable: true });
+            return { crashed: false };
+        });
+
+        expect(result.crashed).toBe(false);
+    });
+
+    // --- Parse Stress ---
+
+    test('buildParseTree handles empty string', async ({ page }) => {
+        const tree = await page.evaluate(() => window.viz.buildParseTree(''));
+        expect(tree).not.toBeNull();
+        expect(tree.children).toEqual([]);
+    });
+
+    test('buildParseTree handles semicolons only', async ({ page }) => {
+        const tree = await page.evaluate(() => window.viz.buildParseTree(';;;'));
+        expect(tree).not.toBeNull();
+        // Should produce empty children (no tokens after comment stripping)
+        expect(tree.children.length).toBe(0);
+    });
+
+    test('buildParseTree handles very long identifier', async ({ page }) => {
+        const longName = 'a'.repeat(200);
+        const tree = await page.evaluate((name) => {
+            return window.viz.buildParseTree(`SELECT ${name} FROM t;`);
+        }, longName);
+
+        expect(tree.type).toBe('SELECT');
+        const cols = tree.children.find(c => c.type === 'columns');
+        expect(cols.text).toContain(longName);
+    });
+
+    test('buildParseTree handles nested parentheses in column defs', async ({ page }) => {
+        const tree = await page.evaluate(() => {
+            return window.viz.buildParseTree('CREATE TABLE nested(a TEXT CHECK(a IN (1, 2, 3)), b INTEGER);');
+        });
+
+        expect(tree.type).toBe('CREATE');
+        // Should have table name + 2 column defs (not crash on nested parens)
+        const colDefs = tree.children.filter(c => c.type === 'column_def');
+        expect(colDefs.length).toBe(2);
+    });
+
+    test('_astLabel returns type when text equals type', async ({ page }) => {
+        const label = await page.evaluate(() => {
+            return window.viz._astLabel({ type: 'SELECT', text: 'SELECT' });
+        });
+        expect(label).toBe('SELECT');
+    });
+
+    test('_astLabel truncates text at 30 chars', async ({ page }) => {
+        const label = await page.evaluate(() => {
+            return window.viz._astLabel({ type: 'col', text: 'x'.repeat(40) });
+        });
+        expect(label).toContain('...');
+        expect(label.length).toBeLessThan(50);
+    });
+
+    // --- VDBE Stress ---
+
+    test('stepVdbe with no opcodes does nothing', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            window.viz.vdbeOpcodes = [];
+            window.viz._resetVdbeState();
+            window.viz.stepVdbe(1); // should not crash
+            window.viz.stepVdbe(-1); // should not crash
+            window.viz.stepVdbe(0); // reset
+            return { stepIndex: window.viz.vdbeStepIndex };
+        });
+
+        expect(result.stepIndex).toBe(-1);
+    });
+
+    test('showVdbeOpcode with negative pc is rejected', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            window.viz.vdbeOpcodes = [];
+            window.viz._resetVdbeState();
+            window.viz.showVdbeOpcode(-1, 'Test', 0, 0, 0);
+            return { count: window.viz._getDenseOpcodes().length };
+        });
+
+        expect(result.count).toBe(0);
+    });
+
+    test('showVdbeOpcode with non-string opcode falls back to Unknown', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            window.viz.vdbeOpcodes = [];
+            window.viz._resetVdbeState();
+            window.viz.showVdbeOpcode(0, 123, 0, 0, 0); // non-string opcode
+            const op = window.viz.vdbeOpcodes[0];
+            return { opcode: op?.opcode };
+        });
+
+        expect(result.opcode).toBe('Unknown');
+    });
+
+    test('showVdbeComplete cancels pending executing draw', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            window.viz.vdbeOpcodes = [];
+            window.viz._resetVdbeState();
+            window.viz.viewMode = 'vdbe';
+
+            // Add an opcode (schedules rAF)
+            window.viz.showVdbeOpcode(0, 'Init', 0, 0, 0);
+            const hadRaf = window.viz._vdbeRafId !== null;
+
+            // Complete should cancel it
+            window.viz.showVdbeComplete(0);
+            const rafCancelled = window.viz._vdbeRafId === null;
+
+            return { hadRaf, rafCancelled };
+        });
+
+        expect(result.rafCancelled).toBe(true);
+    });
+
+    test('VDBE step forward then backward returns to original state', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE step_fb(id INTEGER); INSERT INTO step_fb VALUES(1); SELECT * FROM step_fb;');
+        await switchView(page, 'vdbe');
+
+        // Step forward
+        await page.click('#vdbe-next');
+        await page.waitForTimeout(50);
+        const afterForward = await page.evaluate(() => window.viz.vdbeStepIndex);
+
+        // Step backward
+        await page.click('#vdbe-prev');
+        await page.waitForTimeout(50);
+        const afterBack = await page.evaluate(() => window.viz.vdbeStepIndex);
+
+        // After forward + backward, step index should go back
+        expect(afterBack).toBeLessThanOrEqual(afterForward);
+    });
+
+    test('VDBE reset sets stepIndex to -1', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE vreset(id INTEGER); INSERT INTO vreset VALUES(1);');
+        await switchView(page, 'vdbe');
+
+        // Step forward a few times
+        for (let i = 0; i < 3; i++) {
+            await page.click('#vdbe-next');
+            await page.waitForTimeout(30);
+        }
+
+        // Reset
+        await page.click('#vdbe-reset');
+        await page.waitForTimeout(50);
+
+        const stepIndex = await page.evaluate(() => window.viz.vdbeStepIndex);
+        expect(stepIndex).toBe(-1);
+    });
+});

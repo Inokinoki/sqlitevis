@@ -1558,11 +1558,14 @@ class BTreeVisualizer {
                     advance();
                     colTokens.push(t);
                 }
-                // Split by comma to get individual column defs
+                // Split by comma to get individual column defs (respecting nested parens)
                 const colDefs = [];
                 let current = [];
+                let commaDepth = 0;
                 for (const t of colTokens) {
-                    if (t.text === ',') {
+                    if (t.text === '(') { commaDepth++; current.push(t); }
+                    else if (t.text === ')') { commaDepth--; current.push(t); }
+                    else if (t.text === ',' && commaDepth === 0) {
                         if (current.length > 0) {
                             colDefs.push(this._tokensText(current));
                             current = [];
