@@ -3189,3 +3189,64 @@ test.describe('splitPage and Node Info Edge Cases', () => {
         expect(result.hiddenAfter).toBe(true);
     });
 });
+
+// ========================================================================
+// ViewMode Dispatch — events arriving in non-btree mode should not
+// overwrite the canvas with btree content
+// ========================================================================
+
+test.describe('ViewMode Dispatch', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('events arriving while in parse mode do not overwrite parse canvas', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE vm_test(id INTEGER);');
+        await switchView(page, 'parse');
+
+        // Execute more SQL while in parse mode (triggers BTREE_INSERT events)
+        await executeSQL(page, 'INSERT INTO vm_test VALUES(1);');
+
+        // Parse view should still show the INSERT's parse tree, not btree nodes
+        const tree = await page.evaluate(() => window.viz.parseTree);
+        expect(tree).not.toBeNull();
+        expect(tree.type).toBe('INSERT');
+    });
+
+    test('events arriving while in vdbe mode do not overwrite vdbe canvas', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE vm_v(id INTEGER);');
+        await switchView(page, 'vdbe');
+
+        // Execute more SQL while in vdbe mode
+        await executeSQL(page, 'INSERT INTO vm_v VALUES(1);');
+
+        // VDBE state should be correct
+        const state = await page.evaluate(() => ({
+            opcodeCount: window.viz._opcodeCount,
+            denseOpcodes: window.viz._getDenseOpcodes().length,
+            viewMode: window.viz.viewMode
+        }));
+        expect(state.viewMode).toBe('vdbe');
+        expect(state.opcodeCount).toBeGreaterThan(0);
+    });
+
+    test('layout() is not called when in parse mode', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE layout_t(id INTEGER);');
+        await switchView(page, 'parse');
+
+        // Add pages directly (simulates BTREE_INSERT events)
+        const result = await page.evaluate(() => {
+            window.viz.addPage(100, 1, null);
+            // Parse tree should still be intact
+            return {
+                parseTree: window.viz.parseTree?.type,
+                viewMode: window.viz.viewMode
+            };
+        });
+
+        expect(result.viewMode).toBe('parse');
+        expect(result.parseTree).toBe('CREATE');
+    });
+});

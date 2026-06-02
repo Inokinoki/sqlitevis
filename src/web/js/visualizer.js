@@ -753,6 +753,21 @@ class BTreeVisualizer {
     _performDraw() {
         const startTime = performance.now();
 
+        // Dispatch to the correct view renderer
+        if (this.viewMode === 'parse') {
+            this.drawParseTree(!this.currentSQL);
+            return;
+        }
+        if (this.viewMode === 'vdbe') {
+            const denseOps = this._getDenseOpcodes();
+            if (denseOps.length > 0) {
+                this.drawVdbeList('Complete', `Total opcodes: ${denseOps.length}`);
+            } else {
+                this.drawVdbeList('Idle', 'Execute SQL to see VDBE execution');
+            }
+            return;
+        }
+
         const w = this.canvas.clientWidth;
         const h = this.canvas.clientHeight;
 
@@ -904,7 +919,7 @@ class BTreeVisualizer {
             }
         };
 
-        // Draw all nodes
+        // Draw all nodes (highlighted drawn last so they render on top)
         internalNodes.forEach(n => drawRichNode(n));
         leafNodes.forEach(n => drawRichNode(n));
         highlightedNodes.forEach(n => drawRichNode(n));
