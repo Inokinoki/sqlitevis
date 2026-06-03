@@ -3250,3 +3250,259 @@ test.describe('ViewMode Dispatch', () => {
         expect(result.parseTree).toBe('CREATE');
     });
 });
+
+// ========================================================================
+// clear() Full Reset, destroy(), Hit Detection with Pan/Zoom
+// ========================================================================
+
+test.describe('Clear Reset and Hit Detection', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('clear() resets all visualizer state completely', async ({ page }) => {
+        await executeSQL(page, `
+            CREATE TABLE clr(id INTEGER PRIMARY KEY, val TEXT);
+            INSERT INTO clr VALUES(1, 'test');
+            SELECT * FROM clr;
+        `);
+
+        // Verify state exists before clear
+        const before = await page.evaluate(() => ({
+            nodes: window.viz.nodes.size,
+            parseTree: !!window.viz.parseTree,
+            parseTokens: window.viz.parseTokens.length,
+            currentSQL: window.viz.currentSQL,
+            vdbeOpcodes: window.viz._opcodeCount,
+            panX: window.viz._panX,
+            zoom: window.viz._zoom,
+            highlightedNodes: window.viz.highlightedNodes.size
+        }));
+        expect(before.nodes).toBeGreaterThan(0);
+        expect(before.parseTree).toBe(true);
+        expect(before.vdbeOpcodes).toBeGreaterThan(0);
+
+        // Clear
+        const after = await page.evaluate(() => {
+            // Set some pan/zoom/highlight state first
+            window.viz._panX = 50;
+            window.viz._panY = 30;
+            window.viz._zoom = 2;
+            window.viz.highlightedNodes.add(99);
+
+            window.viz.clear();
+            return {
+                nodes: window.viz.nodes.size,
+                rootPage: window.viz.rootPage,
+                parseTree: window.viz.parseTree,
+                parseTokens: window.viz.parseTokens.length,
+                currentSQL: window.viz.currentSQL,
+                vdbeOpcodes: window.viz.vdbeOpcodes.length,
+                opcodeCount: window.viz._opcodeCount,
+                vdbeStepIndex: window.viz.vdbeStepIndex,
+                panX: window.viz._panX,
+                panY: window.viz._panY,
+                zoom: window.viz._zoom,
+                highlightedNodes: window.viz.highlightedNodes.size,
+                animations: window.viz.animations.length,
+                layoutCacheSize: window.viz._layoutCache.size
+            };
+        });
+
+        expect(after.nodes).toBe(0);
+        expect(after.rootPage).toBe(1);
+        expect(after.parseTree).toBeNull();
+        expect(after.parseTokens).toBe(0);
+        expect(after.currentSQL).toBe('');
+        expect(after.vdbeOpcodes).toBe(0);
+        expect(after.opcodeCount).toBe(0);
+        expect(after.vdbeStepIndex).toBe(-1);
+        expect(after.panX).toBe(0);
+        expect(after.panY).toBe(0);
+        expect(after.zoom).toBe(1);
+        expect(after.highlightedNodes).toBe(0);
+        expect(after.animations).toBe(0);
+        expect(after.layoutCacheSize).toBe(0);
+    });
+
+    test('clear() hides VDBE controls and resets step info', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE cv(id INTEGER); INSERT INTO cv VALUES(1); SELECT * FROM cv;');
+        await switchView(page, 'vdbe');
+
+        // Verify controls visible
+        const beforeCtrl = await page.locator('#vdbe-controls').getAttribute('class');
+        expect(beforeCtrl).not.toContain('hidden');
+
+        // Step once to populate step info
+        await page.click('#vdbe-next');
+        await page.waitForTimeout(50);
+        const beforeInfo = await page.locator('#vdbe-step-info').textContent();
+        expect(beforeInfo).toContain('Step');
+
+        // Clear
+        await page.evaluate(() => window.viz.clear());
+
+        const afterCtrl = await page.locator('#vdbe-controls').getAttribute('class');
+        expect(afterCtrl).toContain('hidden');
+
+        const afterInfo = await page.locator('#vdbe-step-info').textContent();
+        expect(afterInfo).toBe('');
+    });
+
+    test('clear() invalidates node info cache', async ({ page }) => {
+        await page.selectOption('#view-mode', 'btree');
+        await executeSQL(page, 'CREATE TABLE cic(id INTEGER); INSERT INTO cic VALUES(1);');
+
+        // Show node info to populate cache
+        await page.evaluate(() => {
+            const node = window.viz.nodes.values().next().value;
+            if (node) window.viz.showNodeInfo(node);
+        });
+
+        const hasCacheBefore = await page.evaluate(() => window.viz._nodeInfoCache !== null);
+        expect(hasCacheBefore).toBe(true);
+
+        // Clear should invalidate cache
+        await page.evaluate(() => window.viz.clear());
+        const hasCacheAfter = await page.evaluate(() => window.viz._nodeInfoCache);
+        expect(hasCacheAfter).toBeNull();
+    });
+
+    test('destroy() removes event listeners', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            // Verify handlers exist
+            const hadMove = !!viz._windowMousemoveHandler;
+            const hadUp = !!viz._windowMouseupHandler;
+            const hadAnim = viz._animationRunning;
+
+            viz.destroy();
+
+            return {
+                hadMove,
+                hadUp,
+                hadAnim,
+                moveAfter: viz._windowMousemoveHandler,
+                upAfter: viz._windowMouseupHandler,
+                animAfter: viz._animationRunning
+            };
+        });
+
+        expect(result.hadMove).toBe(true);
+        expect(result.hadUp).toBe(true);
+        expect(result.moveAfter).toBeNull();
+        expect(result.upAfter).toBeNull();
+        expect(result.animAfter).toBe(false);
+    });
+
+    test('getNodeAtPosition finds node at correct coordinates', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(10, 1, null);
+            const node = viz.nodes.get(10);
+            node.x = 100;
+            node.y = 100;
+
+            return {
+                atCenter: viz.getNodeAtPosition(100 + viz.nodeWidth / 2, 100 + viz.nodeHeight / 2)?.page,
+                atTopLeft: viz.getNodeAtPosition(100, 100)?.page,
+                atBottomRight: viz.getNodeAtPosition(100 + viz.nodeWidth, 100 + viz.nodeHeight)?.page,
+                outsideLeft: viz.getNodeAtPosition(99, 100),
+                outsideAbove: viz.getNodeAtPosition(100, 99),
+                outsideRight: viz.getNodeAtPosition(100 + viz.nodeWidth + 1, 100)
+            };
+        });
+
+        expect(result.atCenter).toBe(10);
+        expect(result.atTopLeft).toBe(10);
+        expect(result.atBottomRight).toBe(10);
+        expect(result.outsideLeft).toBeNull();
+        expect(result.outsideAbove).toBeNull();
+        expect(result.outsideRight).toBeNull();
+    });
+
+    test('_screenToWorld converts coordinates correctly with pan/zoom', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            // Default: pan=(0,0), zoom=1 → identity
+            const identity = viz._screenToWorld(100, 200);
+
+            // Pan (50, 30): screen point (100,200) → world (50, 170)
+            viz._panX = 50;
+            viz._panY = 30;
+            const panned = viz._screenToWorld(100, 200);
+
+            // Zoom 2: screen point (100,200) → world (25, 85)
+            viz._panX = 0;
+            viz._panY = 0;
+            viz._zoom = 2;
+            const zoomed = viz._screenToWorld(100, 200);
+
+            // Pan + zoom
+            viz._panX = 50;
+            viz._panY = 30;
+            viz._zoom = 2;
+            const both = viz._screenToWorld(100, 200);
+
+            return { identity, panned, zoomed, both };
+        });
+
+        expect(result.identity).toEqual({ x: 100, y: 200 });
+        expect(result.panned).toEqual({ x: 50, y: 170 });
+        expect(result.zoomed).toEqual({ x: 50, y: 100 });
+        expect(result.both).toEqual({ x: 25, y: 85 });
+    });
+
+    test('hit detection works with pan offset', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz._panX = 0;
+            viz._panY = 0;
+            viz._zoom = 1;
+            viz.addPage(20, 1, null);
+            const node = viz.nodes.get(20);
+            node.x = 200;
+            node.y = 200;
+
+            // At world (250, 220) → should hit node at (200,200) with width=120, height=40
+            const direct = viz.getNodeAtPosition(250, 220);
+
+            // Pan right by 100: screen (350, 220) → world (250, 220)
+            viz._panX = 100;
+            viz._panY = 0;
+            const world = viz._screenToWorld(350, 220);
+            const viaPan = viz.getNodeAtPosition(world.x, world.y);
+
+            return { directPage: direct?.page, world, hitPage: viaPan?.page };
+        });
+
+        expect(result.directPage).toBe(20);
+        expect(result.hitPage).toBe(20);
+        expect(result.world.x).toBe(250);
+        expect(result.world.y).toBe(220);
+    });
+
+    test('getNodeAtPosition returns first matching node when nodes overlap', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const viz = window.viz;
+            viz.nodes.clear();
+            viz.addPage(1, 1, null);
+            viz.addPage(2, 1, null);
+
+            const n1 = viz.nodes.get(1);
+            const n2 = viz.nodes.get(2);
+            n1.x = 100; n1.y = 100;
+            n2.x = 100; n2.y = 100; // overlapping
+
+            const found = viz.getNodeAtPosition(160, 120);
+            return { found: found !== null };
+        });
+
+        // Should find one of the overlapping nodes
+        expect(result.found).toBe(true);
+    });
+});
