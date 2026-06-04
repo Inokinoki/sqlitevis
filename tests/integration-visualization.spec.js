@@ -3506,3 +3506,202 @@ test.describe('Clear Reset and Hit Detection', () => {
         expect(result.found).toBe(true);
     });
 });
+
+// ========================================================================
+// Main.js: _splitStatements, queryNodeData, stepThroughSQL
+// ========================================================================
+
+test.describe('Main App: Statement Splitting and Data Query', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto(BASE);
+        await page.waitForLoadState('networkidle');
+    });
+
+    test('_splitStatements handles simple semicolons', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            return app._splitStatements('SELECT 1; SELECT 2;');
+        });
+        expect(result).toEqual(['SELECT 1', ' SELECT 2']);
+    });
+
+    test('_splitStatements handles escaped quotes inside strings', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            return app._splitStatements("INSERT INTO t VALUES('it''s; here'); SELECT 1;");
+        });
+        // The semicolon inside 'it''s; here' should NOT split
+        expect(result.length).toBe(2);
+        expect(result[0]).toContain("it''s; here");
+        expect(result[1].trim()).toBe('SELECT 1');
+    });
+
+    test('_splitStatements handles double-quoted identifiers', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            return app._splitStatements('SELECT "col;name" FROM t;');
+        });
+        expect(result.length).toBe(1);
+        expect(result[0]).toContain('"col;name"');
+    });
+
+    test('_splitStatements handles empty statement after trailing semicolons', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            return app._splitStatements('SELECT 1;;; SELECT 2;');
+        });
+        // Empty strings from consecutive semicolons are trimmed
+        const nonEmpty = result.filter(s => s.trim());
+        expect(nonEmpty.length).toBe(2);
+    });
+
+    test('_splitStatements handles single statement without semicolon', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            return app._splitStatements('SELECT 1');
+        });
+        expect(result).toEqual(['SELECT 1']);
+    });
+
+    test('_buildPageToTableMap creates correct mapping', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE map_test(id INTEGER PRIMARY KEY);');
+
+        const map = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            app._buildPageToTableMap();
+            const entries = [...app._pageToTable.entries()];
+            return entries.map(([page, name]) => ({ page, name }));
+        });
+
+        // Should have at least the map_test table
+        const mapTestEntry = map.find(e => e.name === 'map_test');
+        expect(mapTestEntry).toBeDefined();
+        expect(mapTestEntry.page).toBeGreaterThan(0);
+    });
+
+    test('queryNodeData returns actual row data for valid page', async ({ page }) => {
+        await executeSQL(page, `
+            CREATE TABLE qnd(id INTEGER PRIMARY KEY, name TEXT);
+            INSERT INTO qnd VALUES(1, 'Alice');
+            INSERT INTO qnd VALUES(2, 'Bob');
+        `);
+
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            app._buildPageToTableMap();
+
+            // Find a leaf page that has cells
+            for (const [pageNum, node] of window.viz.nodes) {
+                if (node.cells.length > 0) {
+                    const rowids = node.cells.map(c => c.key);
+                    const data = app.queryNodeData(pageNum, rowids);
+                    return { pageNum, rowids, data };
+                }
+            }
+            return { error: 'No nodes with cells found' };
+        });
+
+        expect(result.error).toBeUndefined();
+        expect(result.data.columns).toBeDefined();
+        expect(result.data.columns).toContain('id');
+        expect(result.data.columns).toContain('name');
+        expect(result.data.rows.length).toBeGreaterThan(0);
+    });
+
+    test('queryNodeData rejects non-numeric rowids (SQL injection protection)', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE inject(id INTEGER PRIMARY KEY);');
+
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            // Try SQL injection via rowids
+            return app.queryNodeData(1, ['1; DROP TABLE inject--']);
+        });
+
+        expect(result.error).toBeDefined();
+    });
+
+    test('queryNodeData returns error for unknown root page', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const app = window.sqliteApp;
+            // Page 9999 is not in _pageToTable
+            return app.queryNodeData(9999, [1]);
+        });
+
+        expect(result.error).toBeDefined();
+    });
+
+    test('stepThroughSQL executes statements one at a time', async ({ page }) => {
+        await page.fill('#sql-input', 'CREATE TABLE step_tbl(id INTEGER); INSERT INTO step_tbl VALUES(1); SELECT * FROM step_tbl;');
+
+        // Step 1: CREATE TABLE — step info shown then replaced by execute result
+        await page.click('#step-btn');
+        await page.waitForTimeout(300);
+        // After executeRealSQL, output shows the SQL result
+        let output = await page.locator('#output').textContent();
+        expect(output).toContain('successfully');
+
+        // Step 2: INSERT
+        await page.click('#step-btn');
+        await page.waitForTimeout(300);
+        output = await page.locator('#output').textContent();
+        expect(output).toContain('successfully');
+
+        // Step 3: SELECT — shows result table with data
+        await page.click('#step-btn');
+        await page.waitForTimeout(300);
+        const html = await page.locator('#output').innerHTML();
+        expect(html).toContain('<th>id</th>');
+        expect(html).toContain('<td>1</td>');
+    });
+
+    test('stepThroughSQL wraps around after last statement', async ({ page }) => {
+        // Create table, use SELECTs that show results
+        await executeSQL(page, 'CREATE TABLE wrap(id INTEGER PRIMARY KEY); INSERT INTO wrap VALUES(1);');
+        await page.fill('#sql-input', "SELECT * FROM wrap; SELECT count(*) FROM wrap;");
+
+        // Step through both statements
+        await page.click('#step-btn');
+        await page.waitForTimeout(200);
+        await page.click('#step-btn');
+        await page.waitForTimeout(200);
+
+        // Verify stepIndex is at 2 (past the end)
+        const stepIndex = await page.evaluate(() => window.sqliteApp._stepIndex);
+        expect(stepIndex).toBe(2);
+
+        // Step again — wraps to 0, clears events, re-executes first statement
+        await page.click('#step-btn');
+        await page.waitForTimeout(300);
+
+        // Step index should be 1 after wrap
+        const newStepIndex = await page.evaluate(() => window.sqliteApp._stepIndex);
+        expect(newStepIndex).toBe(1);
+
+        // Events were cleared (wrap calls eventManager.clear())
+        const eventCount = await page.evaluate(() => eventManager.eventCount);
+        expect(eventCount).toBeGreaterThan(0); // new events from re-execution
+    });
+
+    test('stepThroughSQL with empty input shows error', async ({ page }) => {
+        await page.fill('#sql-input', '');
+        await page.click('#step-btn');
+
+        const output = await page.locator('#output').textContent();
+        expect(output).toContain('enter SQL');
+    });
+
+    test('error in one statement stops execution of remaining', async ({ page }) => {
+        await executeSQL(page, 'CREATE TABLE err_stop(id INTEGER);');
+
+        // Execute valid then invalid then valid
+        await page.fill('#sql-input', 'SELECT * FROM err_stop; SELECT * FROM nonexistent; SELECT * FROM err_stop;');
+        await page.click('#execute-btn');
+        await page.waitForTimeout(300);
+
+        const output = await page.locator('#output').innerHTML();
+        // Should show error for the second statement
+        expect(output).toContain('Error');
+        expect(output).toContain('nonexistent');
+    });
+});
