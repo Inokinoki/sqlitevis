@@ -9,6 +9,8 @@ class SQLiteVisApp {
         this.sqliteModule = null;
         this.visualizer = null;
         this.isInitialized = false;
+        this._stepIndex = 0;
+        this._sqlInput = null;
     }
 
     /**
@@ -17,9 +19,6 @@ class SQLiteVisApp {
     async init() {
         try {
             this.updateStatus('Initializing SQLite WebAssembly...');
-
-            // Connect event manager to visualizer setup (lazy load visualizer later)
-            this.setupEventHandlers();
 
             // Set initialized flag BEFORE loading SQLite so events are processed
             this.isInitialized = true;
@@ -60,13 +59,6 @@ class SQLiteVisApp {
     }
 
     /**
-     * Setup event handlers before visualizer is ready
-     */
-    setupEventHandlers() {
-        // Event handlers connected in connectEvents() when visualizer is ready
-    }
-
-    /**
      * Initialize SQLite WebAssembly module
      */
     async initSQLite() {
@@ -74,9 +66,6 @@ class SQLiteVisApp {
         if (typeof createSQLiteModule === 'undefined') {
             throw new Error('SQLite WASM module not found. Please build the project using "make build-wasm"');
         }
-
-        // Store reference to self for event handler
-        const self = this;
 
         try {
             // window.sqliteVisEventHandler is already registered by events.js
@@ -146,7 +135,7 @@ class SQLiteVisApp {
             if (this.visualizer) this.visualizer.pageSize = e.data.pageSize;
         });
 
-        eventManager.on(1, (e) => { /* BTREE_CLOSE */ });
+        // BTREE_CLOSE(1), BTREE_BALANCE(5) — not yet instrumented
 
         eventManager.on(2, (e) => { // BTREE_INSERT
             if (this.visualizer) {
@@ -176,27 +165,15 @@ class SQLiteVisApp {
             }
         });
 
-        eventManager.on(5, (e) => { /* BTREE_BALANCE */ });
-
-        eventManager.on(6, (e) => { // PAGE_ALLOCATE
-            // Nodes are now auto-created by BTREE_INSERT events with proper tree structure.
-            // PAGE_ALLOCATE only updates existing node page count; skip creating orphan nodes.
-        });
+        // PAGE_ALLOCATE(6) — nodes auto-created by BTREE_INSERT events
 
         eventManager.on(7, (e) => { // PAGE_FREE
             if (this.visualizer) {
-                this.visualizer.nodes.delete(e.data.page);
-                this.visualizer.layout();
-                this.visualizer.draw();
-                const el = document.getElementById('page-count');
-                if (el) el.textContent = this.visualizer.nodes.size;
+                this.visualizer.removePage(e.data.page);
             }
         });
 
-        // Parse events
-        eventManager.on(8, (e) => { /* PARSE_START - data logged via eventManager */ });
-
-        eventManager.on(9, (e) => { /* PARSE_TOKEN */ });
+        // Parse events — PARSE_START(8), PARSE_TOKEN(9) data logged via eventManager
 
         eventManager.on(10, (e) => { // PARSE_COMPLETE
             if (this.visualizer) this.visualizer.showParseComplete(e.data.success);
@@ -225,6 +202,8 @@ class SQLiteVisApp {
      * Setup UI event handlers
      */
     setupUIHandlers() {
+        this._sqlInput = document.getElementById('sql-input');
+
         // Execute button
         document.getElementById('execute-btn').addEventListener('click', () => {
             this.executeSQL();
@@ -232,7 +211,7 @@ class SQLiteVisApp {
 
         // Clear button
         document.getElementById('clear-btn').addEventListener('click', () => {
-            document.getElementById('sql-input').value = '';
+            this._sqlInput.value = '';
             this.clearOutput();
         });
 
@@ -291,11 +270,16 @@ class SQLiteVisApp {
         });
 
         // Ctrl+Enter / Cmd+Enter to execute SQL
-        document.getElementById('sql-input').addEventListener('keydown', (e) => {
+        this._sqlInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 this.executeSQL();
             }
+        });
+
+        // Reset step index when SQL content changes
+        this._sqlInput.addEventListener('input', () => {
+            this._stepIndex = 0;
         });
     }
 
@@ -303,7 +287,7 @@ class SQLiteVisApp {
      * Step through SQL statements one at a time
      */
     stepThroughSQL() {
-        const sql = document.getElementById('sql-input').value.trim();
+        const sql = this._sqlInput.value.trim();
         if (!sql) {
             this.showOutput('Please enter SQL to step through', 'error');
             return;
@@ -317,7 +301,6 @@ class SQLiteVisApp {
         }
 
         // Track current step index
-        if (typeof this._stepIndex === 'undefined') this._stepIndex = 0;
         if (this._stepIndex >= statements.length) {
             this._stepIndex = 0;
             this.showOutput('All statements executed. Starting from beginning.', 'text');
@@ -334,7 +317,7 @@ class SQLiteVisApp {
      * Execute SQL from the editor
      */
     executeSQL() {
-        const sql = document.getElementById('sql-input').value.trim();
+        const sql = this._sqlInput.value.trim();
         if (!sql) {
             this.showOutput('Please enter SQL to execute', 'error');
             return;
@@ -365,16 +348,19 @@ class SQLiteVisApp {
         const stmts = this._splitStatements(sql);
         let lastOutput = null;
 
+        // Build parse tree once for the entire SQL batch
+        if (this.visualizer && stmts.length > 0) {
+            this.visualizer.showParseStart(sql.trim());
+        }
+
         for (const stmt of stmts) {
             if (!stmt.trim()) continue;
-            // Notify visualizer of each statement for parse tree visualization
-            if (this.visualizer) this.visualizer.showParseStart(stmt.trim());
             lastOutput = this._executeOne(stmt.trim());
             if (lastOutput && lastOutput.error) {
                 this.showHTMLOutput(
                     `<div style="color:var(--danger-color);font-weight:600">SQL Error</div>` +
-                    `<div style="color:var(--text-secondary);margin:4px 0;font-family:monospace;font-size:13px;background:var(--bg-tertiary);padding:6px 10px;border-radius:4px">${this._escapeHtml(stmt.trim())}</div>` +
-                    `<div style="color:var(--danger-color)">${this._escapeHtml(lastOutput.error)}</div>`
+                    `<div style="color:var(--text-secondary);margin:4px 0;font-family:monospace;font-size:13px;background:var(--bg-tertiary);padding:6px 10px;border-radius:4px">${escapeHtml(stmt.trim())}</div>` +
+                    `<div style="color:var(--danger-color)">${escapeHtml(lastOutput.error)}</div>`
                 );
                 this.updateStatus('Error');
                 return;
@@ -384,113 +370,39 @@ class SQLiteVisApp {
         if (lastOutput && lastOutput.table) {
             this.showHTMLOutput(lastOutput.table);
         } else if (lastOutput && lastOutput.message) {
-            this.showHTMLOutput(`<div style="color:var(--success-color)">${this._escapeHtml(lastOutput.message)}</div>`);
+            this.showHTMLOutput(`<div style="color:var(--success-color)">${escapeHtml(lastOutput.message)}</div>`);
         }
 
-        // Rebuild page-to-table mapping after execution (tables may have been created)
-        this._buildPageToTableMap();
+        // Rebuild page-to-table mapping only if SQL may have changed the schema
+        if (/\b(CREATE|DROP|ALTER)\b/i.test(sql)) {
+            this._buildPageToTableMap();
+        }
 
         this.updateStatus('Ready');
     }
 
     _splitStatements(sql) {
         const stmts = [];
-        let cur = '', inStr = false, q = '';
+        let cur = '', inStr = false, q = '', prev = '';
         for (const c of sql) {
-            if (!inStr && (c === "'" || c === '"')) { inStr = true; q = c; cur += c; continue; }
-            if (inStr && c === q) { inStr = false; cur += c; continue; }
-            if (inStr) { cur += c; continue; }
+            if (!inStr && (c === "'" || c === '"')) { inStr = true; q = c; cur += c; prev = c; continue; }
+            if (inStr && c === q) {
+                if (prev === q) { cur += c; prev = ''; continue; } // escaped quote ''
+                inStr = false; cur += c; prev = c; continue;
+            }
+            if (inStr) { cur += c; prev = c; continue; }
             if (c === ';') { stmts.push(cur); cur = ''; }
             else cur += c;
+            prev = c;
         }
         if (cur.trim()) stmts.push(cur);
         return stmts;
     }
 
-    _escapeHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s == null ? 'NULL' : String(s);
-        return d.innerHTML;
-    }
-
-    _executeOne(sql) {
-        const mod = this.sqliteModule;
-        const trimmedSql = sql.trim();
-
-        try {
-            const sqlLen = mod.lengthBytesUTF8(trimmedSql) + 1;
-            const sqlPtr = mod._malloc(sqlLen);
-            mod.stringToUTF8(trimmedSql, sqlPtr, sqlLen);
-
-            const errorPtrPtr = mod._malloc(4);
-            mod.HEAP32[errorPtrPtr >> 2] = 0;
-
-            // Collect results via callback
-            let resultColumns = null;
-            let resultRows = [];
-            let hasResults = false;
-
-            const callback = (unused, colCount, colValuesPtr, colNamesPtr) => {
-                hasResults = true;
-                if (!resultColumns) {
-                    resultColumns = [];
-                    for (let i = 0; i < colCount; i++) {
-                        const namePtr = mod.HEAP32[(colNamesPtr >> 2) + i];
-                        resultColumns.push(mod.UTF8ToString(namePtr));
-                    }
-                }
-                const row = [];
-                for (let i = 0; i < colCount; i++) {
-                    const valPtr = mod.HEAP32[(colValuesPtr >> 2) + i];
-                    row.push(valPtr === 0 ? null : mod.UTF8ToString(valPtr));
-                }
-                resultRows.push(row);
-                return 0;
-            };
-            const callbackPtr = mod.addFunction(callback, 'iiiii');
-
-            const result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
-            mod.removeFunction(callbackPtr);
-            mod._free(sqlPtr);
-
-            if (result !== 0) {
-                const errorMsgPtr = mod.HEAP32[errorPtrPtr >> 2];
-                let errMsg = 'Error code: ' + result;
-                if (errorMsgPtr) errMsg = mod.UTF8ToString(errorMsgPtr);
-                mod._free(errorPtrPtr);
-                return { error: errMsg };
-            }
-
-            mod._free(errorPtrPtr);
-
-            if (hasResults && resultColumns) {
-                return { table: this._buildTable(resultColumns, resultRows) };
-            }
-
-            return { message: 'SQL executed successfully' };
-        } catch (error) {
-            return { error: error.message };
-        }
-    }
-
-
-    _buildTable(columns, rows) {
-        const parts = ['<table><tr>'];
-        for (const col of columns) parts.push(`<th>${this._escapeHtml(col)}</th>`);
-        parts.push('</tr>');
-        for (const row of rows) {
-            parts.push('<tr>');
-            for (const cell of row) parts.push(`<td>${this._escapeHtml(cell)}</td>`);
-            parts.push('</tr>');
-        }
-        parts.push('</table>');
-        return parts.join('');
-    }
-
     /**
-     * Execute SQL and return raw {columns, rows} instead of HTML
+     * Core WASM SQL execution — returns { columns, rows, error }
      */
-    _queryRaw(sql) {
+    _execSql(sql) {
         const mod = this.sqliteModule;
         const trimmedSql = sql.trim();
 
@@ -522,21 +434,40 @@ class SQLiteVisApp {
                 return 0;
             };
             const callbackPtr = mod.addFunction(callback, 'iiiii');
+
             const result = mod._sqlite3_exec(this.db, sqlPtr, callbackPtr, 0, errorPtrPtr);
             mod.removeFunction(callbackPtr);
             mod._free(sqlPtr);
 
             if (result !== 0) {
                 const errorMsgPtr = mod.HEAP32[errorPtrPtr >> 2];
-                const errMsg = errorMsgPtr ? mod.UTF8ToString(errorMsgPtr) : 'Error ' + result;
+                const errMsg = errorMsgPtr ? mod.UTF8ToString(errorMsgPtr) : 'Error code: ' + result;
+                if (errorMsgPtr) mod._free(errorMsgPtr);
                 mod._free(errorPtrPtr);
-                return { error: errMsg };
+                return { columns: [], rows: [], error: errMsg };
             }
+
             mod._free(errorPtrPtr);
-            return { columns: columns || [], rows };
+            return { columns: columns || [], rows, error: null };
         } catch (e) {
-            return { error: e.message };
+            return { columns: [], rows: [], error: e.message };
         }
+    }
+
+    _executeOne(sql) {
+        const { columns, rows, error } = this._execSql(sql);
+        if (error) return { error };
+        if (columns.length > 0) return { table: buildTableHtml(columns, rows) };
+        return { message: 'SQL executed successfully' };
+    }
+
+    /**
+     * Execute SQL and return raw {columns, rows} instead of HTML
+     */
+    _queryRaw(sql) {
+        const { columns, rows, error } = this._execSql(sql);
+        if (error) return { error };
+        return { columns, rows };
     }
 
     /**
@@ -557,32 +488,24 @@ class SQLiteVisApp {
     }
 
     /**
-     * Walk up the tree to find root page for a given node
-     */
-    _findRootPageForNode(pageNum) {
-        let current = this.visualizer.nodes.get(pageNum);
-        while (current && current.parent !== null) {
-            current = this.visualizer.nodes.get(current.parent);
-        }
-        return current ? current.page : null;
-    }
-
-    /**
      * Query actual row data for a node by rowid
      */
     queryNodeData(pageNum, rowids) {
         if (!rowids || !rowids.length) return { error: 'No rowids' };
 
-        const rootPage = this._findRootPageForNode(pageNum);
+        // Validate rowids are numeric to prevent SQL injection
+        const validRowids = rowids.filter(r => /^\d+$/.test(String(r)));
+        if (validRowids.length === 0) return { error: 'No valid rowids' };
+
+        const rootPage = this.visualizer.findRootPage(pageNum);
         if (!rootPage) return { error: 'Cannot determine table for page ' + pageNum };
 
         if (!this._pageToTable || !this._pageToTable.has(rootPage)) {
             return { error: 'Unknown table for root page ' + rootPage };
         }
 
-        const tableName = this._pageToTable.get(rootPage);
-        const rowidList = rowids.join(',');
-        const sql = 'SELECT * FROM "' + tableName + '" WHERE rowid IN (' + rowidList + ')';
+        const tableName = this._pageToTable.get(rootPage).replace(/"/g, '""');
+        const sql = `SELECT * FROM "${tableName}" WHERE rowid IN (${validRowids.join(',')})`;
         const result = this._queryRaw(sql);
         if (result.error) return result;
         return { columns: result.columns, rows: result.rows };
